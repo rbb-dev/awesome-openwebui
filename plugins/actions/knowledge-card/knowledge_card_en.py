@@ -1,0 +1,554 @@
+"""
+title: Flash Card
+author: Antigravity
+author_url: https://github.com/open-webui
+funding_url: https://github.com/open-webui
+version: 0.2.1
+icon_url: data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZENzAwIi8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjRkZBNzAwIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHBhdGggZD0iTTEzIDJMMyA3djEzbDEwIDV2LTZ6IiBmaWxsPSJ1cmwoI2cpIi8+PHBhdGggZD0iTTEzIDJ2Nmw4LTN2MTNsLTggM3YtNnoiIGZpbGw9IiM2NjdlZWEiLz48cGF0aCBkPSJNMTMgMnY2bTAgNXYxMCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLW9wYWNpdHk9IjAuMyIvPjwvc3ZnPg==
+description: Quickly generates beautiful flashcards from text, extracting key points and categories.
+"""
+
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any, List
+import json
+import logging
+from open_webui.utils.chat import generate_chat_completion
+from open_webui.models.users import Users
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class Action:
+    class Valves(BaseModel):
+        model_id: str = Field(
+            default="",
+            description="用于生成卡片内容的模型 ID。如果为空，则使用当前模型。",
+        )
+        min_text_length: int = Field(
+            default=50, description="生成闪记卡所需的最小文本长度（字符数）。"
+        )
+        max_text_length: int = Field(
+            default=2000,
+            description="建议的最大文本长度。超过此长度建议使用深度分析工具。",
+        )
+        language: str = Field(
+            default="zh", description="卡片内容的目标语言 (例如 'zh', 'en')。"
+        )
+        show_status: bool = Field(
+            default=True, description="是否在聊天界面显示状态更新。"
+        )
+
+    def __init__(self):
+        self.valves = self.Valves()
+
+    async def action(
+        self,
+        body: dict,
+        __user__: Optional[Dict[str, Any]] = None,
+        __event_emitter__: Optional[Any] = None,
+        __request__: Optional[Any] = None,
+    ) -> Optional[dict]:
+        print(f"action:{__name__} triggered")
+
+        if not __event_emitter__:
+            return body
+
+        # Get the last user message
+        messages = body.get("messages", [])
+        if not messages:
+            return body
+
+        # Usually the action is triggered on the last message
+        target_message = messages[-1]["content"]
+
+        # Check text length
+        text_length = len(target_message)
+        if text_length < self.valves.min_text_length:
+            if __event_emitter__:
+                await __event_emitter__(
+                    {
+                        "type": "notification",
+                        "data": {
+                            "type": "warning",
+                            "content": f"文本过短（{text_length}字符），建议至少{self.valves.min_text_length}字符。",
+                        },
+                    }
+                )
+            return body
+
+        if text_length > self.valves.max_text_length:
+            if __event_emitter__:
+                await __event_emitter__(
+                    {
+                        "type": "notification",
+                        "data": {
+                            "type": "info",
+                            "content": f"文本较长（{text_length}字符），建议使用'墨海拾贝'进行深度分析。",
+                        },
+                    }
+                )
+
+        # Notify user that we are generating the card
+        if self.valves.show_status:
+            await __event_emitter__(
+                {
+                    "type": "notification",
+                    "data": {
+                        "type": "info",
+                        "content": "⚡ 正在生成闪记卡...",
+                    },
+                }
+            )
+
+        try:
+            # 1. Extract information using LLM
+            user_id = __user__.get("id") if __user__ else "default"
+            user_obj = Users.get_user_by_id(user_id)
+
+            model = self.valves.model_id if self.valves.model_id else body.get("model")
+
+            system_prompt = f"""
+你是一个闪记卡生成专家，专注于创建适合学习和记忆的知识卡片。你的任务是将文本提炼成简洁、易记的学习卡片。
+
+请提取以下字段，并以 JSON 格式返回：
+1. "title": 创建一个简短、精准的标题（6-12 字），突出核心概念
+2. "summary": 用一句话总结核心要义（20-40 字），要通俗易懂、便于记忆
+3. "key_points": 列出 3-5 个关键记忆点（每个 10-20 字）
+   - 每个要点应该是独立的知识点
+   - 使用简洁、口语化的表达
+   - 避免冗长的句子
+4. "tags": 列出 2-4 个分类标签（每个 2-5 字）
+5. "category": 选择一个主分类（如：概念、技能、事实、方法等）
+
+目标语言: {self.valves.language}
+
+重要原则：
+- **极简主义**: 每个要点都要精炼到极致
+- **记忆优先**: 内容要便于记忆和回忆
+- **核心聚焦**: 只提取最核心的知识点
+- **口语化**: 使用通俗易懂的语言
+- 只返回 JSON 对象，不要包含 markdown 格式
+            """
+
+            prompt = f"请将以下文本提炼成一张学习记忆卡片：\n\n{target_message}"
+
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": False,
+            }
+
+            response = await generate_chat_completion(__request__, payload, user_obj)
+            content = response["choices"][0]["message"]["content"]
+
+            # Parse JSON
+            try:
+                # simple cleanup in case of markdown code blocks
+                if "```json" in content:
+                    content = content.split("```json")[1].split("```")[0].strip()
+                elif "```" in content:
+                    content = content.split("```")[1].split("```")[0].strip()
+
+                card_data = json.loads(content)
+            except Exception as e:
+                logger.error(f"Failed to parse JSON: {e}, content: {content}")
+                if self.valves.show_status:
+                    await __event_emitter__(
+                        {
+                            "type": "notification",
+                            "data": {
+                                "type": "error",
+                                "content": "生成卡片数据失败，请重试。",
+                            },
+                        }
+                    )
+                return body
+
+            # 2. Generate HTML
+            html_card = self.generate_html_card(card_data)
+
+            # 3. Append to message
+            # We append it to the user message so it shows up as part of the interaction
+            # Or we can append it to the assistant response if we were a Pipe, but this is an Action.
+            # Actions usually modify the input or trigger a side effect.
+            # To show the card, we can append it to the message content.
+
+            html_embed_tag = f"```html\n{html_card}\n```"
+            body["messages"][-1]["content"] += f"\n\n{html_embed_tag}"
+
+            if self.valves.show_status:
+                await __event_emitter__(
+                    {
+                        "type": "notification",
+                        "data": {
+                            "type": "success",
+                            "content": "⚡ 闪记卡生成成功！",
+                        },
+                    }
+                )
+
+            return body
+
+        except Exception as e:
+            logger.error(f"Error generating knowledge card: {e}")
+            if self.valves.show_status:
+                await __event_emitter__(
+                    {
+                        "type": "notification",
+                        "data": {
+                            "type": "error",
+                            "content": f"生成知识卡片时出错: {str(e)}",
+                        },
+                    }
+                )
+            return body
+
+    def generate_html_card(self, data):
+        # Enhanced CSS with premium styling
+        style = """
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+            
+            .knowledge-card-container {
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                display: flex;
+                justify-content: center;
+                margin: 30px 0;
+                padding: 0 10px;
+            }
+            
+            .knowledge-card {
+                width: 100%;
+                max-width: 500px;
+                border-radius: 20px;
+                overflow: hidden;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 3px;
+                transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+                position: relative;
+            }
+            
+            .knowledge-card:hover {
+                transform: translateY(-8px) scale(1.02);
+                box-shadow: 0 25px 50px -12px rgba(102, 126, 234, 0.4);
+            }
+            
+            .knowledge-card::before {
+                content: '';
+                position: absolute;
+                top: -2px;
+                left: -2px;
+                right: -2px;
+                bottom: -2px;
+                background: linear-gradient(135deg, #667eea, #764ba2, #f093fb, #4facfe);
+                border-radius: 20px;
+                opacity: 0;
+                transition: opacity 0.4s ease;
+                z-index: -1;
+                filter: blur(10px);
+            }
+            
+            .knowledge-card:hover::before {
+                opacity: 0.7;
+                animation: glow 2s ease-in-out infinite;
+            }
+            
+            @keyframes glow {
+                0%, 100% { opacity: 0.5; }
+                50% { opacity: 0.8; }
+            }
+            
+            .card-inner {
+                background: #ffffff;
+                border-radius: 18px;
+                overflow: hidden;
+            }
+            
+            .card-header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 32px 28px;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .card-header::before {
+                content: '';
+                position: absolute;
+                top: -50%;
+                right: -50%;
+                width: 200%;
+                height: 200%;
+                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+                animation: rotate 15s linear infinite;
+            }
+            
+            @keyframes rotate {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            
+            .card-category {
+                font-size: 0.7em;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+                opacity: 0.95;
+                margin-bottom: 10px;
+                font-weight: 700;
+                display: inline-block;
+                padding: 4px 12px;
+                background: rgba(255, 255, 255, 0.2);
+                border-radius: 12px;
+                backdrop-filter: blur(10px);
+            }
+            
+            .card-title {
+                font-size: 1.75em;
+                font-weight: 800;
+                margin: 0;
+                line-height: 1.3;
+                position: relative;
+                z-index: 1;
+                letter-spacing: -0.5px;
+            }
+            
+            .card-body {
+                padding: 28px;
+                color: #1a1a1a;
+                background: linear-gradient(to bottom, #ffffff 0%, #fafafa 100%);
+            }
+            
+            .card-summary {
+                font-size: 1.05em;
+                color: #374151;
+                margin-bottom: 24px;
+                line-height: 1.7;
+                border-left: 5px solid #764ba2;
+                padding: 16px 20px;
+                background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+                border-radius: 0 12px 12px 0;
+                font-weight: 500;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .card-summary::before {
+                content: '"';
+                position: absolute;
+                top: -10px;
+                left: 10px;
+                font-size: 4em;
+                color: rgba(118, 75, 162, 0.1);
+                font-family: Georgia, serif;
+                font-weight: bold;
+            }
+            
+            .card-section-title {
+                font-size: 0.85em;
+                font-weight: 700;
+                color: #764ba2;
+                margin-bottom: 14px;
+                text-transform: uppercase;
+                letter-spacing: 1.5px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            
+            .card-section-title::before {
+                content: '';
+                width: 4px;
+                height: 16px;
+                background: linear-gradient(to bottom, #667eea, #764ba2);
+                border-radius: 2px;
+            }
+            
+            .card-points {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+            }
+            
+            .card-points li {
+                margin-bottom: 14px;
+                padding: 12px 16px 12px 44px;
+                position: relative;
+                line-height: 1.6;
+                color: #374151;
+                background: #ffffff;
+                border-radius: 10px;
+                transition: all 0.3s ease;
+                border: 1px solid #e5e7eb;
+                font-weight: 500;
+            }
+            
+            .card-points li:hover {
+                transform: translateX(5px);
+                background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+                border-color: #764ba2;
+                box-shadow: 0 4px 12px rgba(118, 75, 162, 0.1);
+            }
+            
+            .card-points li::before {
+                content: '✓';
+                color: #ffffff;
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                font-weight: bold;
+                position: absolute;
+                left: 12px;
+                top: 50%;
+                transform: translateY(-50%);
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 50%;
+                font-size: 0.85em;
+                box-shadow: 0 2px 8px rgba(118, 75, 162, 0.3);
+            }
+            
+            .card-footer {
+                padding: 20px 28px;
+                background: linear-gradient(to right, #f8fafc 0%, #f1f5f9 100%);
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                border-top: 2px solid #e5e7eb;
+                align-items: center;
+            }
+            
+            .card-tag-label {
+                font-size: 0.75em;
+                font-weight: 700;
+                color: #64748b;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                margin-right: 4px;
+            }
+            
+            .card-tag {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 6px 16px;
+                border-radius: 20px;
+                font-size: 0.85em;
+                font-weight: 600;
+                transition: all 0.3s ease;
+                border: 2px solid transparent;
+                cursor: default;
+                letter-spacing: 0.3px;
+            }
+            
+            .card-tag:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+                border-color: rgba(255, 255, 255, 0.3);
+            }
+            
+            /* Dark mode support */
+            @media (prefers-color-scheme: dark) {
+                .card-inner {
+                    background: #1e1e1e;
+                }
+                
+                .card-body {
+                    background: linear-gradient(to bottom, #1e1e1e 0%, #252525 100%);
+                    color: #e5e7eb;
+                }
+                
+                .card-summary {
+                    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+                    color: #d1d5db;
+                }
+                
+                .card-summary::before {
+                    color: rgba(118, 75, 162, 0.2);
+                }
+                
+                .card-points li {
+                    color: #d1d5db;
+                    background: #2d2d2d;
+                    border-color: #404040;
+                }
+                
+                .card-points li:hover {
+                    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+                    border-color: #667eea;
+                }
+                
+                .card-footer {
+                    background: linear-gradient(to right, #252525 0%, #2d2d2d 100%);
+                    border-top-color: #404040;
+                }
+                
+                .card-tag-label {
+                    color: #9ca3af;
+                }
+            }
+            
+            /* Mobile responsive */
+            @media (max-width: 640px) {
+                .knowledge-card {
+                    max-width: 100%;
+                }
+                
+                .card-header {
+                    padding: 24px 20px;
+                }
+                
+                .card-title {
+                    font-size: 1.5em;
+                }
+                
+                .card-body {
+                    padding: 20px;
+                }
+                
+                .card-footer {
+                    padding: 16px 20px;
+                }
+            }
+        </style>
+        """
+
+        # Enhanced HTML structure
+        html = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {style}
+</head>
+<body>
+    <div class="knowledge-card-container">
+        <div class="knowledge-card">
+            <div class="card-inner">
+                <div class="card-header">
+                    <div class="card-category">{data.get('category', '通用知识')}</div>
+                    <h2 class="card-title">{data.get('title', '知识卡片')}</h2>
+                </div>
+                <div class="card-body">
+                    <div class="card-summary">
+                        {data.get('summary', '')}
+                    </div>
+                    <div class="card-section-title">核心要点</div>
+                    <ul class="card-points">
+                        {''.join([f'<li>{point}</li>' for point in data.get('key_points', [])])}
+                    </ul>
+                </div>
+                <div class="card-footer">
+                    <span class="card-tag-label">标签</span>
+                    {''.join([f'<span class="card-tag">#{tag}</span>' for tag in data.get('tags', [])])}
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>"""
+        return html
