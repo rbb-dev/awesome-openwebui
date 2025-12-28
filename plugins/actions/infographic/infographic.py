@@ -56,7 +56,7 @@ Choose the most appropriate template based on the content structure:
 - **Relationship**: `relation-sankey` (Sankey Diagram), `relation-circle` (Circular Relationship)
 
 #### 3. Comparison & Analysis
-- **Comparison**: `compare-binary` (Binary Comparison), `compare-table` (Comparison Table)
+- **Comparison**: `compare-binary` (Binary Comparison), `list-grid` (Multi-item Grid Comparison)
 - **Analysis**: `compare-swot` (SWOT Analysis), `quadrant-quarter` (Quadrant Chart)
 
 #### 4. Charts & Data
@@ -79,7 +79,31 @@ data
       desc Description of B
 ```
 
-#### B. SWOT Analysis
+
+#### B. Binary Comparison
+Use `items` for two sides and `children` for comparison points.
+
+```infographic
+infographic compare-binary
+data
+  title Advantages vs Disadvantages
+  desc Compare two aspects side by side
+  items
+    - label Advantages
+      children
+        - label Strong R&D
+          desc Leading technology and innovation capability
+        - label High customer loyalty
+          desc Repurchase rate over 60%
+    - label Disadvantages
+      children
+        - label Weak brand exposure
+          desc Insufficient marketing, low awareness
+        - label Narrow channel coverage
+          desc Limited online channels
+```
+
+#### C. SWOT Analysis
 Use `children` to define the 4 quadrants (Strengths, Weaknesses, Opportunities, Threats).
 
 ```infographic
@@ -106,7 +130,7 @@ data
             - label New Competitors
 ```
 
-#### C. Quadrant Chart
+#### D. Quadrant Chart
 Use `items` for quadrants and `illus` for icons.
 
 ```infographic
@@ -499,7 +523,6 @@ SCRIPT_TEMPLATE_INFOGRAPHIC = """
             // Comparison & Analysis
             'compare-binary': 'compare-binary-horizontal-simple-vs',
             'compare-swot': 'compare-swot',
-            'compare-table': 'compare-table-simple',
             'quadrant-quarter': 'quadrant-quarter-simple-card',
             
             // Charts & Data

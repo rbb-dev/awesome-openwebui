@@ -60,8 +60,8 @@ Infographic syntax is a Mermaid-like declarative syntax for describing infograph
 #### 3. Comparison & Analysis
 -   **Binary Comparison (A vs B)** -> `compare-binary`
 -   **SWOT Analysis** -> `compare-swot`
--   **Multi-item Comparison Table** -> `compare-table`
 -   **Quadrant Analysis (Importance vs Urgency)** -> `quadrant-quarter`
+-   **Multi-item Grid Comparison** -> `list-grid` (use for comparing multiple items)
 
 #### 4. Charts & Data (Metric-heavy)
 -   **Key Metrics / Data Cards** -> `statistic-card`
@@ -110,6 +110,26 @@ data
       value 1500
     - label Mar
       value 1800
+
+
+#### Comparison (Binary Comparison)
+infographic compare-binary
+data
+  title Advantages vs Disadvantages
+  desc Compare two aspects side by side
+  items
+    - label Advantages
+      children
+        - label Strong R&D
+          desc Leading technology and innovation capability
+        - label High customer loyalty
+          desc Repurchase rate over 60%
+    - label Disadvantages
+      children
+        - label Weak brand exposure
+          desc Insufficient marketing, low awareness
+        - label Narrow channel coverage
+          desc Limited online channels
 
 #### Comparison (SWOT)
 infographic compare-swot
@@ -514,7 +534,6 @@ SCRIPT_TEMPLATE_INFOGRAPHIC = """
             // 对比与分析
             'compare-binary': 'compare-binary-horizontal-simple-vs',
             'compare-swot': 'compare-swot',
-            'compare-table': 'compare-table-simple', // 暂无直接对应
             'quadrant-quarter': 'quadrant-quarter-simple-card',
             
             // 图表与数据
