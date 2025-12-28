@@ -1,43 +1,65 @@
-# AntV Infographic Plugin
+# 📊 Smart Infographic (AntV)
 
-Transform text content into beautiful infographics with a single click. Supports lists, hierarchies, processes, relationships, comparisons, analysis, charts, and more.
+An Open WebUI plugin powered by the AntV Infographic engine. It transforms long text into professional, beautiful infographics with a single click.
 
-## Features
+## ✨ Key Features
 
-- **Smart Analysis**: Automatically identifies text structure and selects the best template.
-- **Rich Templates**: Supports 20+ AntV infographic templates, including lists, trees, mind maps, roadmaps, Sankey diagrams, SWOT, quadrant charts, bar charts, pie charts, etc.
-- **Auto Icons**: Intelligently searches and matches appropriate icons.
-- **Multi-format Export**: Export as SVG, PNG, or HTML.
-- **Multi-language**: Output language follows user settings.
+- 🚀 **AI-Powered Transformation**: Automatically analyzes text logic, extracts key points, and generates structured charts.
+- 🎨 **Professional Templates**: Includes various AntV official templates: Lists, Trees, Mindmaps, Comparison Tables, Flowcharts, and Statistical Charts.
+- 🔍 **Auto-Icon Matching**: Built-in logic to search and match the most relevant Material Design Icons based on content.
+- 📥 **Multi-Format Export**: Download your infographics as **SVG**, **PNG**, or a **Standalone HTML** file.
+- 🌈 **Highly Customizable**: Supports Dark/Light modes, auto-adapts theme colors, with bold titles and refined card layouts.
+- 📱 **Responsive Design**: Generated charts look great on both desktop and mobile devices.
 
-## Usage
+## 🛠️ Supported Template Types
 
-In the Open WebUI chat interface, simply input text or upload a document, then enable this plugin. The plugin will analyze the content and generate an infographic.
+| Category | Template Name | Use Case |
+| :--- | :--- | :--- |
+| **Lists & Hierarchy** | `list-grid`, `tree-vertical`, `mindmap` | Features, Org Charts, Brainstorming |
+| **Sequence & Relation** | `sequence-roadmap`, `relation-circle` | Roadmaps, Circular Flows, Steps |
+| **Comparison & Analysis** | `compare-binary`, `compare-swot`, `quadrant-quarter` | Pros/Cons, SWOT, Quadrants |
+| **Charts & Data** | `chart-bar`, `chart-line`, `chart-pie` | Trends, Distributions, Metrics |
 
-### Supported Chart Types
+## 🚀 How to Use
 
-#### 1. List & Hierarchy
-- **List**: Grid Cards (`list-grid`), Vertical List (`list-vertical`)
-- **Tree**: Vertical Tree (`tree-vertical`), Horizontal Tree (`tree-horizontal`)
-- **Mindmap**: `mindmap`
+1. **Install**: Search for "Smart Infographic" in the Open WebUI Community and install.
+2. **Trigger**: Enter your text in the chat, then click the **Action Button** (📊 icon) next to the input box.
+3. **AI Processing**: The AI analyzes the text and generates the infographic syntax.
+4. **Preview & Download**: Preview the result and use the download buttons below to save your infographic.
 
-#### 2. Sequence & Relationship
-- **Process**: Roadmap (`sequence-roadmap`), Zigzag Process (`sequence-zigzag`), Horizontal Process (`sequence-horizontal`)
-- **Relationship**: Sankey Diagram (`relation-sankey`), Circular Relationship (`relation-circle`)
+## ⚙️ Configuration (Valves)
 
-#### 3. Comparison & Analysis
-- **Comparison**: Binary Comparison (`compare-binary`), Comparison Table (`compare-table`)
-- **Analysis**: SWOT Analysis (`compare-swot`), Quadrant Chart (`quadrant-quarter`)
+You can adjust the following parameters in the plugin settings to optimize the generation:
 
-#### 4. Charts & Data
-- **Statistics**: Statistic Cards (`statistic-card`)
-- **Charts**: Bar Chart (`chart-bar`), Column Chart (`chart-column`), Line Chart (`chart-line`), Pie Chart (`chart-pie`), Doughnut Chart (`chart-doughnut`)
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| **Show Status (SHOW_STATUS)** | `True` | Whether to show real-time AI analysis and generation status in the chat. |
+| **Model ID (MODEL_ID)** | `Empty` | Specify the LLM model for text analysis. If empty, the current chat model is used. |
+| **Min Text Length (MIN_TEXT_LENGTH)** | `100` | Minimum characters required to trigger analysis, preventing accidental triggers on short text. |
+| **Clear Previous (CLEAR_PREVIOUS_HTML)** | `False` | Whether to clear previous charts. If `False`, new charts will be appended below. |
+| **Message Count (MESSAGE_COUNT)** | `1` | Number of recent messages to use for analysis. Increase this for more context. |
 
-## Installation
+## 📝 Syntax Example (For Advanced Users)
 
-Place `infographic.py` (English version) or `信息图.py` (Chinese version) into your Open WebUI plugins directory.
+You can also input this syntax directly for AI to render:
 
-## Dependencies
+```infographic
+infographic list-grid
+data
+  title 🚀 Plugin Benefits
+  desc Why use the Smart Infographic plugin
+  items
+    - label Fast Generation
+      desc Convert text to charts in seconds
+    - label Beautiful Design
+      desc Uses AntV professional design standards
+```
 
-- Depends on `@antv/infographic` library (loaded via CDN).
-- Requires internet access to load CDN resources and icons.
+## 👨‍💻 Author
+
+**jeff**
+- GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## 📄 License
+
+MIT License

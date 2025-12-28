@@ -1,8 +1,10 @@
 """
-title: Infographic
-icon_url: data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIj48cmVjdCB4PSIzIiB5PSIzIiB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHJ4PSIyIi8+PHBhdGggZD0iTTcgOGg1Ii8+PHBhdGggZD0iTTcgMTJoNyIvPjxwYXRoIGQ9Ik03IDE2aDkiLz48L3N2Zz4=
-version: 1.1.2
-description: Transform text content into beautiful infographics with multiple templates and automatic icon search.
+title: 📊 Smart Infographic (AntV)
+author: jeff
+author_url: https://github.com/Fu-Jie/awesome-openwebui
+icon_url: data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij48cmVjdCB4PSIzIiB5PSIxMCIgd2lkdGg9IjQiIGhlaWdodD0iMTEiIGZpbGw9IiM2MzY2ZjEiIHJ4PSIxIi8+PHJlY3QgeD0iMTAiIHk9IjUiIHdpZHRoPSI0IiBoZWlnaHQ9IjE2IiBmaWxsPSIjOGI1Y2Y2IiByeD0iMSIvPjxyZWN0IHg9IjE3IiB5PSIxMyIgd2lkdGg9IjQiIGhlaWdodD0iOCIgZmlsbD0iIzEwYjk4MSIgcng9IjEiLz48L3N2Zz4=
+version: 1.3.0
+description: AI-powered infographic generator based on AntV Infographic. Supports professional templates, auto-icon matching, and SVG/PNG downloads.
 """
 
 from pydantic import BaseModel, Field

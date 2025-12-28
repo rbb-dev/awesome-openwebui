@@ -1,43 +1,65 @@
-# AntV Infographic 智能信息图插件
+# 📊 智能信息图 (AntV Infographic)
 
-将文本内容一键转换为精美的信息图。支持列表、层级、流程、关系、对比、分析、图表等多种可视化形式。
+基于 AntV Infographic 引擎的 Open WebUI 插件，能够将长文本内容一键转换为专业、美观的信息图表。
 
-## 功能特性
+## ✨ 核心特性
 
-- **智能分析**: 自动识别文本结构，选择最合适的图表模板。
-- **丰富模板**: 支持 20+ 种 AntV 信息图模板，涵盖列表、树图、思维导图、流程图、桑基图、SWOT、象限图、柱状图、饼图等。
-- **自动配图**: 智能搜索并匹配合适的图标。
-- **多格式导出**: 支持导出为 SVG, PNG, HTML 格式。
-- **多语言支持**: 输出语言跟随用户设定。
+- 🚀 **智能转换**：自动分析文本核心逻辑，提取关键点并生成结构化图表。
+- 🎨 **专业模板**：内置多种 AntV 官方模板，包括列表、树图、思维导图、对比图、流程图及统计图表等。
+- 🔍 **自动图标匹配**：内置图标搜索逻辑，根据内容自动匹配最相关的 Material Design Icons。
+- 📥 **多格式导出**：支持一键下载为 **SVG**、**PNG** 或 **独立 HTML** 文件。
+- 🌈 **高度自定义**：支持深色/浅色模式，自动适配主题颜色，主标题加粗突出，卡片布局精美。
+- 📱 **响应式设计**：生成的图表在桌面端和移动端均有良好的展示效果。
 
-## 使用方法
+## 🛠️ 支持的模板类型
 
-在 Open WebUI 聊天框中，直接输入文本或上传文档，然后启用该插件。插件会自动分析内容并生成信息图。
+| 分类 | 模板名称 | 适用场景 |
+| :--- | :--- | :--- |
+| **列表与层级** | `list-grid`, `tree-vertical`, `mindmap` | 功能亮点、组织架构、思维导图 |
+| **顺序与关系** | `sequence-roadmap`, `relation-circle` | 发展历程、循环关系、步骤说明 |
+| **对比与分析** | `compare-binary`, `compare-swot`, `quadrant-quarter` | 优劣势对比、SWOT 分析、象限图 |
+| **图表与数据** | `chart-bar`, `chart-line`, `chart-pie` | 数据趋势、比例分布、数值对比 |
 
-### 支持的图表类型
+## 🚀 使用方法
 
-#### 1. 列表与层级
-- **列表**: 网格卡片 (`list-grid`), 垂直列表 (`list-vertical`)
-- **树图**: 垂直树 (`tree-vertical`), 水平树 (`tree-horizontal`)
-- **思维导图**: `mindmap`
+1. **安装插件**：在 Open WebUI 插件市场搜索并安装。
+2. **触发生成**：在对话框中输入一段长文本，点击输入框旁边的 **Action 按钮**（📊 图标）。
+3. **AI 处理**：AI 会自动分析文本并生成对应的信息图语法。
+4. **预览与下载**：在渲染区域预览效果，满意后点击下方的下载按钮保存。
 
-#### 2. 顺序与关系
-- **流程**: 路线图 (`sequence-roadmap`), 之字形流程 (`sequence-zigzag`), 水平流程 (`sequence-horizontal`)
-- **关系**: 桑基图 (`relation-sankey`), 循环关系 (`relation-circle`)
+## ⚙️ 配置参数 (Valves)
 
-#### 3. 对比与分析
-- **对比**: 二元对比 (`compare-binary`), 对比表 (`compare-table`)
-- **分析**: SWOT 分析 (`compare-swot`), 象限图 (`quadrant-quarter`)
+在插件设置界面，你可以调整以下参数来优化生成效果：
 
-#### 4. 图表与数据
-- **统计**: 统计卡片 (`statistic-card`)
-- **图表**: 柱状图 (`chart-bar`), 条形图 (`chart-column`), 折线图 (`chart-line`), 饼图 (`chart-pie`), 环形图 (`chart-doughnut`)
+| 参数名称 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| **显示状态 (SHOW_STATUS)** | `True` | 是否在聊天界面实时显示 AI 分析和生成的进度状态。 |
+| **模型 ID (MODEL_ID)** | `空` | 指定用于文本分析的 LLM 模型。留空则默认使用当前对话的模型。 |
+| **最小文本长度 (MIN_TEXT_LENGTH)** | `100` | 触发分析所需的最小字符数，防止对过短的对话误操作。 |
+| **清除旧结果 (CLEAR_PREVIOUS_HTML)** | `False` | 每次生成是否清除之前的图表。若为 `False`，新图表将追加在下方。 |
+| **上下文消息数 (MESSAGE_COUNT)** | `1` | 用于分析的最近消息条数。增加此值可让 AI 参考更多对话背景。 |
 
-## 安装
+## 📝 语法示例 (高级用户)
 
-将 `infographic.py` (英文版) 或 `信息图.py` (中文版) 放入 Open WebUI 的插件目录即可。
+你也可以直接输入以下语法让 AI 渲染：
 
-## 依赖
+```infographic
+infographic list-grid
+data
+  title 🚀 插件优势
+  desc 为什么选择智能信息图插件
+  items
+    - label 极速生成
+      desc 秒级完成文本到图表的转换
+    - label 视觉精美
+      desc 采用 AntV 专业设计规范
+```
 
-- 插件依赖 `@antv/infographic` 库 (通过 CDN 加载)。
-- 需要联网权限以加载 CDN 资源和图标。
+## 👨‍💻 作者
+
+**jeff**
+- GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## 📄 许可证
+
+MIT License
