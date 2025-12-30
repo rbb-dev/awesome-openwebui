@@ -1,0 +1,574 @@
+"""
+title: 导出为 Word
+author: Fu-Jie
+author_url: https://github.com/Fu-Jie
+funding_url: https://github.com/Fu-Jie/awesome-openwebui
+version: 0.1.0
+icon_url: data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0xNCAySDZhMiAyIDAgMCAwLTIgMnYxNmEyIDIgMCAwIDAgMiAyaDEyYTIgMiAwIDAgMCAyLTJWOFoiLz48cGF0aCBkPSJNMTQgMnY2aDYiLz48cGF0aCBkPSJNMTYgMTNoLTIuNWEyIDIgMCAwIDAgMCA0SDEyIi8+PHBhdGggZD0iTTggMTNoMiIvPjxwYXRoIGQ9Ik04IDE3aDIiLz48L3N2Zz4=
+requirements: python-docx==1.1.2
+description: 将当前对话内容从 Markdown 转换并导出为 Word (.docx) 文件，支持中英文无乱码。
+"""
+
+import os
+import re
+import base64
+import datetime
+import io
+from typing import Optional, Callable, Awaitable, Any, List, Tuple
+from docx import Document
+from docx.shared import Pt, Inches, RGBColor, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.style import WD_STYLE_TYPE
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+
+
+class Action:
+    def __init__(self):
+        pass
+
+    async def _send_notification(self, emitter: Callable, type: str, content: str):
+        await emitter(
+            {"type": "notification", "data": {"type": type, "content": content}}
+        )
+
+    async def action(
+        self,
+        body: dict,
+        __user__=None,
+        __event_emitter__=None,
+        __event_call__: Optional[Callable[[Any], Awaitable[None]]] = None,
+    ):
+        print(f"action:{__name__}")
+
+        # 解析用户信息
+        if isinstance(__user__, (list, tuple)):
+            user_language = (
+                __user__[0].get("language", "zh-CN") if __user__ else "zh-CN"
+            )
+            user_name = __user__[0].get("name", "用户") if __user__[0] else "用户"
+            user_id = (
+                __user__[0]["id"]
+                if __user__ and "id" in __user__[0]
+                else "unknown_user"
+            )
+        elif isinstance(__user__, dict):
+            user_language = __user__.get("language", "zh-CN")
+            user_name = __user__.get("name", "用户")
+            user_id = __user__.get("id", "unknown_user")
+
+        if __event_emitter__:
+            last_assistant_message = body["messages"][-1]
+
+            await __event_emitter__(
+                {
+                    "type": "status",
+                    "data": {"description": "正在转换为 Word 文档...", "done": False},
+                }
+            )
+
+            try:
+                message_content = last_assistant_message["content"]
+
+                if not message_content or not message_content.strip():
+                    await self._send_notification(
+                        __event_emitter__, "error", "没有找到可导出的内容！"
+                    )
+                    return
+
+                # 生成文件名
+                title = self.extract_title(message_content)
+                current_datetime = datetime.datetime.now()
+                formatted_date = current_datetime.strftime("%Y%m%d")
+
+                if title:
+                    filename = f"{self.clean_filename(title)}.docx"
+                else:
+                    filename = f"{user_name}_{formatted_date}.docx"
+
+                # 创建 Word 文档
+                doc = self.markdown_to_docx(message_content)
+
+                # 保存到内存
+                doc_buffer = io.BytesIO()
+                doc.save(doc_buffer)
+                doc_buffer.seek(0)
+                file_content = doc_buffer.read()
+                base64_blob = base64.b64encode(file_content).decode("utf-8")
+
+                # 触发文件下载
+                if __event_call__:
+                    await __event_call__(
+                        {
+                            "type": "execute",
+                            "data": {
+                                "code": f"""
+                                try {{
+                                    const base64Data = "{base64_blob}";
+                                    const binaryData = atob(base64Data);
+                                    const arrayBuffer = new Uint8Array(binaryData.length);
+                                    for (let i = 0; i < binaryData.length; i++) {{
+                                        arrayBuffer[i] = binaryData.charCodeAt(i);
+                                    }}
+                                    const blob = new Blob([arrayBuffer], {{ type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }});
+                                    const filename = "{filename}";
+
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement("a");
+                                    a.style.display = "none";
+                                    a.href = url;
+                                    a.download = filename;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    URL.revokeObjectURL(url);
+                                    document.body.removeChild(a);
+                                }} catch (error) {{
+                                    console.error('触发下载时出错:', error);
+                                }}
+                                """
+                            },
+                        }
+                    )
+
+                await __event_emitter__(
+                    {
+                        "type": "status",
+                        "data": {"description": "Word 文档已导出", "done": True},
+                    }
+                )
+
+                await self._send_notification(
+                    __event_emitter__, "success", f"已成功导出为 {filename}"
+                )
+
+                return {"message": "下载事件已触发"}
+
+            except Exception as e:
+                print(f"Error exporting to Word: {str(e)}")
+                await __event_emitter__(
+                    {
+                        "type": "status",
+                        "data": {
+                            "description": f"导出失败: {str(e)}",
+                            "done": True,
+                        },
+                    }
+                )
+                await self._send_notification(
+                    __event_emitter__, "error", f"导出 Word 文档时出错: {str(e)}"
+                )
+
+    def extract_title(self, content: str) -> str:
+        """从 Markdown 内容中提取标题"""
+        lines = content.split("\n")
+        for line in lines:
+            # 匹配 h1-h3 标题
+            match = re.match(r"^#{1,3}\s+(.+)$", line.strip())
+            if match:
+                return match.group(1).strip()
+        return ""
+
+    def clean_filename(self, name: str) -> str:
+        """清理文件名中的非法字符"""
+        return re.sub(r'[\\/*?:"<>|]', "", name).strip()[:50]
+
+    def markdown_to_docx(self, markdown_text: str) -> Document:
+        """
+        将 Markdown 文本转换为 Word 文档
+        支持：标题、段落、粗体、斜体、代码块、列表、表格、链接
+        """
+        doc = Document()
+
+        # 设置默认中文字体
+        self.set_document_default_font(doc)
+
+        lines = markdown_text.split("\n")
+        i = 0
+        in_code_block = False
+        code_block_content = []
+        code_block_lang = ""
+        in_list = False
+        list_items = []
+        list_type = None  # 'ordered' or 'unordered'
+
+        while i < len(lines):
+            line = lines[i]
+
+            # 处理代码块
+            if line.strip().startswith("```"):
+                if not in_code_block:
+                    # 先处理之前积累的列表
+                    if in_list and list_items:
+                        self.add_list_to_doc(doc, list_items, list_type)
+                        list_items = []
+                        in_list = False
+
+                    in_code_block = True
+                    code_block_lang = line.strip()[3:].strip()
+                    code_block_content = []
+                else:
+                    # 代码块结束
+                    in_code_block = False
+                    self.add_code_block(
+                        doc, "\n".join(code_block_content), code_block_lang
+                    )
+                    code_block_content = []
+                    code_block_lang = ""
+                i += 1
+                continue
+
+            if in_code_block:
+                code_block_content.append(line)
+                i += 1
+                continue
+
+            # 处理表格
+            if line.strip().startswith("|") and line.strip().endswith("|"):
+                # 先处理之前积累的列表
+                if in_list and list_items:
+                    self.add_list_to_doc(doc, list_items, list_type)
+                    list_items = []
+                    in_list = False
+
+                table_lines = []
+                while i < len(lines) and lines[i].strip().startswith("|"):
+                    table_lines.append(lines[i])
+                    i += 1
+                self.add_table(doc, table_lines)
+                continue
+
+            # 处理标题
+            header_match = re.match(r"^(#{1,6})\s+(.+)$", line.strip())
+            if header_match:
+                # 先处理之前积累的列表
+                if in_list and list_items:
+                    self.add_list_to_doc(doc, list_items, list_type)
+                    list_items = []
+                    in_list = False
+
+                level = len(header_match.group(1))
+                text = header_match.group(2)
+                self.add_heading(doc, text, level)
+                i += 1
+                continue
+
+            # 处理无序列表
+            unordered_match = re.match(r"^(\s*)[-*+]\s+(.+)$", line)
+            if unordered_match:
+                if not in_list or list_type != "unordered":
+                    if in_list and list_items:
+                        self.add_list_to_doc(doc, list_items, list_type)
+                        list_items = []
+                    in_list = True
+                    list_type = "unordered"
+                indent = len(unordered_match.group(1)) // 2
+                list_items.append((indent, unordered_match.group(2)))
+                i += 1
+                continue
+
+            # 处理有序列表
+            ordered_match = re.match(r"^(\s*)\d+[.)]\s+(.+)$", line)
+            if ordered_match:
+                if not in_list or list_type != "ordered":
+                    if in_list and list_items:
+                        self.add_list_to_doc(doc, list_items, list_type)
+                        list_items = []
+                    in_list = True
+                    list_type = "ordered"
+                indent = len(ordered_match.group(1)) // 2
+                list_items.append((indent, ordered_match.group(2)))
+                i += 1
+                continue
+
+            # 处理水平分割线
+            if re.match(r"^[-*_]{3,}$", line.strip()):
+                # 先处理之前积累的列表
+                if in_list and list_items:
+                    self.add_list_to_doc(doc, list_items, list_type)
+                    list_items = []
+                    in_list = False
+
+                self.add_horizontal_rule(doc)
+                i += 1
+                continue
+
+            # 处理空行
+            if not line.strip():
+                # 列表结束
+                if in_list and list_items:
+                    self.add_list_to_doc(doc, list_items, list_type)
+                    list_items = []
+                    in_list = False
+                i += 1
+                continue
+
+            # 处理普通段落
+            if in_list and list_items:
+                self.add_list_to_doc(doc, list_items, list_type)
+                list_items = []
+                in_list = False
+
+            self.add_paragraph(doc, line)
+            i += 1
+
+        # 处理剩余的列表
+        if in_list and list_items:
+            self.add_list_to_doc(doc, list_items, list_type)
+
+        return doc
+
+    def set_document_default_font(self, doc: Document):
+        """设置文档默认字体，确保中英文都正常显示"""
+        # 设置正文样式
+        style = doc.styles["Normal"]
+        font = style.font
+        font.name = "Times New Roman"  # 英文字体
+        font.size = Pt(11)
+
+        # 设置中文字体
+        style._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+
+        # 设置段落格式
+        paragraph_format = style.paragraph_format
+        paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+        paragraph_format.space_after = Pt(6)
+
+    def add_heading(self, doc: Document, text: str, level: int):
+        """添加标题"""
+        # Word 标题级别从 0 开始，Markdown 从 1 开始
+        heading_level = min(level, 9)  # Word 最多支持 Heading 9
+        heading = doc.add_heading(level=heading_level)
+
+        # 解析并添加格式化文本
+        self.add_formatted_text(heading, text)
+
+        # 设置中文字体
+        for run in heading.runs:
+            run.font.name = "Times New Roman"
+            run._element.rPr.rFonts.set(qn("w:eastAsia"), "黑体")
+
+    def add_paragraph(self, doc: Document, text: str):
+        """添加段落，支持内联格式"""
+        paragraph = doc.add_paragraph()
+        self.add_formatted_text(paragraph, text)
+
+        # 设置中文字体
+        for run in paragraph.runs:
+            run.font.name = "Times New Roman"
+            run._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+
+    def add_formatted_text(self, paragraph, text: str):
+        """
+        解析 Markdown 内联格式并添加到段落
+        支持：粗体、斜体、行内代码、链接、删除线
+        """
+        # 定义格式化模式
+        patterns = [
+            # 粗斜体 ***text*** 或 ___text___
+            (r"\*\*\*(.+?)\*\*\*|___(.+?)___", {"bold": True, "italic": True}),
+            # 粗体 **text** 或 __text__
+            (r"\*\*(.+?)\*\*|__(.+?)__", {"bold": True}),
+            # 斜体 *text* 或 _text_
+            (
+                r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)|(?<!_)_(?!_)(.+?)(?<!_)_(?!_)",
+                {"italic": True},
+            ),
+            # 行内代码 `code`
+            (r"`([^`]+)`", {"code": True}),
+            # 链接 [text](url)
+            (r"\[([^\]]+)\]\(([^)]+)\)", {"link": True}),
+            # 删除线 ~~text~~
+            (r"~~(.+?)~~", {"strike": True}),
+        ]
+
+        # 简化处理：逐段解析
+        remaining = text
+        last_end = 0
+
+        # 合并所有匹配项
+        all_matches = []
+
+        for pattern, style in patterns:
+            for match in re.finditer(pattern, text):
+                # 获取匹配的文本内容
+                groups = match.groups()
+                matched_text = next((g for g in groups if g is not None), "")
+                all_matches.append(
+                    {
+                        "start": match.start(),
+                        "end": match.end(),
+                        "text": matched_text,
+                        "style": style,
+                        "full_match": match.group(0),
+                        "url": (
+                            groups[1] if style.get("link") and len(groups) > 1 else None
+                        ),
+                    }
+                )
+
+        # 按位置排序
+        all_matches.sort(key=lambda x: x["start"])
+
+        # 移除重叠的匹配
+        filtered_matches = []
+        last_end = 0
+        for m in all_matches:
+            if m["start"] >= last_end:
+                filtered_matches.append(m)
+                last_end = m["end"]
+
+        # 构建最终文本
+        pos = 0
+        for match in filtered_matches:
+            # 添加匹配前的普通文本
+            if match["start"] > pos:
+                plain_text = text[pos : match["start"]]
+                if plain_text:
+                    paragraph.add_run(plain_text)
+
+            # 添加格式化文本
+            style = match["style"]
+            run_text = match["text"]
+
+            if style.get("link"):
+                # 链接处理
+                run = paragraph.add_run(run_text)
+                run.font.color.rgb = RGBColor(0, 0, 255)
+                run.font.underline = True
+            elif style.get("code"):
+                # 行内代码
+                run = paragraph.add_run(run_text)
+                run.font.name = "Consolas"
+                run._element.rPr.rFonts.set(qn("w:eastAsia"), "SimHei")
+                run.font.size = Pt(10)
+                # 添加背景色
+                shading = OxmlElement("w:shd")
+                shading.set(qn("w:fill"), "E8E8E8")
+                run._element.rPr.append(shading)
+            else:
+                run = paragraph.add_run(run_text)
+                if style.get("bold"):
+                    run.bold = True
+                if style.get("italic"):
+                    run.italic = True
+                if style.get("strike"):
+                    run.font.strike = True
+
+            pos = match["end"]
+
+        # 添加剩余的普通文本
+        if pos < len(text):
+            paragraph.add_run(text[pos:])
+
+    def add_code_block(self, doc: Document, code: str, language: str = ""):
+        """添加代码块"""
+        # 添加代码块段落
+        paragraph = doc.add_paragraph()
+        paragraph.paragraph_format.left_indent = Cm(0.5)
+        paragraph.paragraph_format.space_before = Pt(6)
+        paragraph.paragraph_format.space_after = Pt(6)
+
+        # 设置代码块背景
+        run = paragraph.add_run(code)
+        run.font.name = "Consolas"
+        run._element.rPr.rFonts.set(qn("w:eastAsia"), "SimHei")
+        run.font.size = Pt(10)
+
+        # 添加浅灰色背景
+        shading = OxmlElement("w:shd")
+        shading.set(qn("w:fill"), "F5F5F5")
+        paragraph._element.pPr.append(shading)
+
+    def add_table(self, doc: Document, table_lines: List[str]):
+        """添加表格"""
+        if len(table_lines) < 2:
+            return
+
+        # 解析表格数据
+        rows = []
+        for line in table_lines:
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            # 跳过分隔行
+            if all(re.fullmatch(r"[-:]+", cell) for cell in cells):
+                continue
+            rows.append(cells)
+
+        if not rows:
+            return
+
+        # 确定列数
+        num_cols = max(len(row) for row in rows)
+
+        # 创建表格
+        table = doc.add_table(rows=len(rows), cols=num_cols)
+        table.style = "Table Grid"
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+        # 填充表格
+        for row_idx, row_data in enumerate(rows):
+            row = table.rows[row_idx]
+            for col_idx, cell_text in enumerate(row_data):
+                if col_idx < num_cols:
+                    cell = row.cells[col_idx]
+                    # 清除默认段落
+                    cell.paragraphs[0].clear()
+                    self.add_formatted_text(cell.paragraphs[0], cell_text)
+
+                    # 设置单元格字体
+                    for run in cell.paragraphs[0].runs:
+                        run.font.name = "Times New Roman"
+                        run._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+                        run.font.size = Pt(10)
+
+                    # 表头加粗
+                    if row_idx == 0:
+                        for run in cell.paragraphs[0].runs:
+                            run.bold = True
+
+        # 设置表格列宽度自适应
+        for row in table.rows:
+            for cell in row.cells:
+                cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    def add_list_to_doc(
+        self, doc: Document, items: List[Tuple[int, str]], list_type: str
+    ):
+        """添加列表"""
+        for indent, text in items:
+            paragraph = doc.add_paragraph()
+
+            if list_type == "unordered":
+                # 无序列表使用项目符号
+                paragraph.style = "List Bullet"
+            else:
+                # 有序列表使用编号
+                paragraph.style = "List Number"
+
+            # 设置缩进
+            paragraph.paragraph_format.left_indent = Cm(0.5 * (indent + 1))
+
+            # 添加格式化文本
+            self.add_formatted_text(paragraph, text)
+
+            # 设置字体
+            for run in paragraph.runs:
+                run.font.name = "Times New Roman"
+                run._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+
+    def add_horizontal_rule(self, doc: Document):
+        """添加水平分割线"""
+        paragraph = doc.add_paragraph()
+        paragraph.paragraph_format.space_before = Pt(12)
+        paragraph.paragraph_format.space_after = Pt(12)
+
+        # 添加底部边框作为分割线
+        pPr = paragraph._element.get_or_add_pPr()
+        pBdr = OxmlElement("w:pBdr")
+        bottom = OxmlElement("w:bottom")
+        bottom.set(qn("w:val"), "single")
+        bottom.set(qn("w:sz"), "6")
+        bottom.set(qn("w:space"), "1")
+        bottom.set(qn("w:color"), "auto")
+        pBdr.append(bottom)
+        pPr.append(pBdr)
