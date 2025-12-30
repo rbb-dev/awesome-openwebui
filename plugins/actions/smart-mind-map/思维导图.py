@@ -109,7 +109,9 @@ CSS_TEMPLATE_MINDMAP = """
             --secondary-color: #43a047;
             --background-color: #f4f6f8;
             --card-bg-color: #ffffff;
-            --text-color: #263238;
+            --text-color: #000000;
+            --link-color: #546e7a;
+            --node-stroke-color: #90a4ae;
             --muted-text-color: #546e7a;
             --border-color: #e0e0e0;
             --header-gradient: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
@@ -122,7 +124,9 @@ CSS_TEMPLATE_MINDMAP = """
             --secondary-color: #81c784;
             --background-color: #111827;
             --card-bg-color: #1f2937;
-            --text-color: #e5e7eb;
+            --text-color: #ffffff;
+            --link-color: #cbd5e1;
+            --node-stroke-color: #94a3b8;
             --muted-text-color: #9ca3af;
             --border-color: #374151;
             --header-gradient: linear-gradient(135deg, #0ea5e9, #22c55e);
@@ -191,6 +195,27 @@ CSS_TEMPLATE_MINDMAP = """
             min-height: 60vh;
             overflow: visible;
         }
+        .markmap-container svg {
+            width: 100%;
+            height: 100%;
+        }
+        .markmap-container svg text {
+            fill: var(--text-color) !important;
+            font-family: var(--font-family);
+        }
+        .markmap-container svg foreignObject,
+        .markmap-container svg .markmap-foreign,
+        .markmap-container svg .markmap-foreign div {
+            color: var(--text-color) !important;
+            font-family: var(--font-family);
+        }
+        .markmap-container svg .markmap-link {
+            stroke: var(--link-color) !important;
+        }
+        .markmap-container svg .markmap-node circle,
+        .markmap-container svg .markmap-node rect {
+            stroke: var(--node-stroke-color) !important;
+        }
         .control-rows {
             display: flex;
             flex-wrap: wrap;
@@ -216,6 +241,16 @@ CSS_TEMPLATE_MINDMAP = """
             display: inline-flex;
             align-items: center;
             gap: 6px;
+            height: 36px;
+            box-sizing: border-box;
+        }
+        select.control-btn {
+            appearance: none;
+            padding-right: 28px;
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23FFFFFF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+            background-size: 10px;
         }
         .control-btn.secondary { background-color: var(--secondary-color); }
         .control-btn.neutral { background-color: #64748b; }
@@ -232,6 +267,7 @@ CSS_TEMPLATE_MINDMAP = """
             border-bottom-left-radius: var(--border-radius);
             border-bottom-right-radius: var(--border-radius);
         }
+
         .footer a {
             color: var(--primary-color);
             text-decoration: none;
@@ -278,8 +314,11 @@ CONTENT_TEMPLATE_MINDMAP = """
                         <button id="zoom-in-btn-{unique_id}" class="control-btn neutral" title="放大">+</button>
                     </div>
                     <div class="btn-group">
-                        <button id="expand-all-btn-{unique_id}" class="control-btn secondary">展开全部</button>
-                        <button id="collapse-all-btn-{unique_id}" class="control-btn neutral">折叠</button>
+                        <select id="depth-select-{unique_id}" class="control-btn secondary" title="展开层级">
+                            <option value="0" selected>全部展开</option>
+                            <option value="2">展开 2 级</option>
+                            <option value="3">展开 3 级</option>
+                        </select>
                         <button id="fullscreen-btn-{unique_id}" class="control-btn">全屏</button>
                         <button id="theme-toggle-btn-{unique_id}" class="control-btn neutral">主题</button>
                     </div>
@@ -346,33 +385,20 @@ SCRIPT_TEMPLATE_MINDMAP = """
 
         const getThemeFromMeta = (doc, scope = 'self') => {
             const metas = Array.from((doc || document).querySelectorAll('meta[name="theme-color"]'));
-            console.log(`[mindmap ${uniqueId}] [${scope}] meta theme-color count: ${metas.length}`);
             if (!metas.length) return null;
             const color = metas[metas.length - 1].content.trim();
-            console.log(`[mindmap ${uniqueId}] [${scope}] meta theme-color picked: "${color}"`);
             const luma = parseColorLuma(color);
-            if (luma === null) {
-                console.log(`[mindmap ${uniqueId}] [${scope}] meta theme-color invalid format, skip.`);
-                return null;
-            }
-            const inferred = luma < 0.5 ? 'dark' : 'light';
-            console.log(`[mindmap ${uniqueId}] [${scope}] meta theme-color luma=${luma.toFixed(3)}, inferred=${inferred}`);
-            return inferred;
+            if (luma === null) return null;
+            return luma < 0.5 ? 'dark' : 'light';
         };
 
         const getParentDocumentSafe = () => {
             try {
-                if (!window.parent || window.parent === window) {
-                    console.log(`[mindmap ${uniqueId}] no parent window or same as self`);
-                    return null;
-                }
+                if (!window.parent || window.parent === window) return null;
                 const pDoc = window.parent.document;
-                // Access a property to trigger potential DOMException on cross-origin
                 void pDoc.title;
-                console.log(`[mindmap ${uniqueId}] parent document accessible, title="${pDoc.title}"`);
                 return pDoc;
             } catch (err) {
-                console.log(`[mindmap ${uniqueId}] parent document not accessible: ${err.name} - ${err.message}`);
                 return null;
             }
         };
@@ -386,43 +412,21 @@ SCRIPT_TEMPLATE_MINDMAP = """
                 const htmlClass = html ? html.className : '';
                 const bodyClass = body ? body.className : '';
                 const htmlDataTheme = html ? html.getAttribute('data-theme') : '';
-                console.log(`[mindmap ${uniqueId}] parent html.class="${htmlClass}", body.class="${bodyClass}", data-theme="${htmlDataTheme}"`);
                 if (htmlDataTheme === 'dark' || bodyClass.includes('dark') || htmlClass.includes('dark')) return 'dark';
                 if (htmlDataTheme === 'light' || bodyClass.includes('light') || htmlClass.includes('light')) return 'light';
                 return null;
             } catch (err) {
-                console.log(`[mindmap ${uniqueId}] parent class not accessible: ${err.name}`);
                 return null;
             }
         };
 
-        const getThemeFromBodyBg = () => {
-            try {
-                const bg = getComputedStyle(document.body).backgroundColor;
-                console.log(`[mindmap ${uniqueId}] self body bg: "${bg}"`);
-                const luma = parseColorLuma(bg);
-                if (luma !== null) {
-                    const inferred = luma < 0.5 ? 'dark' : 'light';
-                    console.log(`[mindmap ${uniqueId}] body bg luma=${luma.toFixed(3)}, inferred=${inferred}`);
-                    return inferred;
-                }
-            } catch (err) {
-                console.log(`[mindmap ${uniqueId}] body bg detection error: ${err}`);
-            }
-            return null;
-        };
-
         const setTheme = (wrapperEl, explicitTheme) => {
-            console.log(`[mindmap ${uniqueId}] --- theme detection start ---`);
             const parentDoc = getParentDocumentSafe();
             const metaThemeParent = parentDoc ? getThemeFromMeta(parentDoc, 'parent') : null;
             const parentClassTheme = getThemeFromParentClass();
             const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
             
-            // Priority: explicit > metaParent > parentClass > prefers-color-scheme
             const chosen = explicitTheme || metaThemeParent || parentClassTheme || (prefersDark ? 'dark' : 'light');
-            console.log(`[mindmap ${uniqueId}] setTheme -> explicit=${explicitTheme || 'none'}, metaParent=${metaThemeParent || 'none'}, parentClass=${parentClassTheme || 'none'}, prefersDark=${prefersDark}, chosen=${chosen}`);
-            console.log(`[mindmap ${uniqueId}] --- theme detection end ---`);
             wrapperEl.classList.toggle('theme-dark', chosen === 'dark');
             return chosen;
         };
@@ -452,11 +456,18 @@ SCRIPT_TEMPLATE_MINDMAP = """
                 const transformer = new Transformer();
                 const { root } = transformer.transform(markdownContent);
 
-                const style = (id) => `${id} text { font-size: 14px !important; }`;
+                const style = (id) => `
+                    ${id} text, ${id} foreignObject { font-size: 14px; }
+                    ${id} foreignObject h1 { font-size: 22px; font-weight: 700; margin: 0; }
+                    ${id} foreignObject h2 { font-size: 18px; font-weight: 600; margin: 0; }
+                    ${id} foreignObject strong { font-weight: 700; }
+                `;
                 const options = {
                     autoFit: true,
                     style: style,
-                    initialExpandLevel: Infinity
+                    initialExpandLevel: Infinity,
+                    zoom: true,
+                    pan: true
                 };
 
                 const markmapInstance = Markmap.create(svgEl, options, root);
@@ -482,8 +493,7 @@ SCRIPT_TEMPLATE_MINDMAP = """
             const zoomInBtn = document.getElementById('zoom-in-btn-' + uniqueId);
             const zoomOutBtn = document.getElementById('zoom-out-btn-' + uniqueId);
             const zoomResetBtn = document.getElementById('zoom-reset-btn-' + uniqueId);
-            const expandAllBtn = document.getElementById('expand-all-btn-' + uniqueId);
-            const collapseAllBtn = document.getElementById('collapse-all-btn-' + uniqueId);
+            const depthSelect = document.getElementById('depth-select-' + uniqueId);
             const fullscreenBtn = document.getElementById('fullscreen-btn-' + uniqueId);
             const themeToggleBtn = document.getElementById('theme-toggle-btn-' + uniqueId);
 
@@ -528,7 +538,20 @@ SCRIPT_TEMPLATE_MINDMAP = """
             const handleDownloadSVG = () => {
                 const svg = containerEl.querySelector('svg');
                 if (!svg) return;
-                const svgData = new XMLSerializer().serializeToString(svg);
+                // Inline styles before export
+                const clonedSvg = svg.cloneNode(true);
+                const style = document.createElement('style');
+                style.textContent = `
+                    text { font-family: sans-serif; fill: ${currentTheme === 'dark' ? '#ffffff' : '#000000'}; }
+                    foreignObject, .markmap-foreign, .markmap-foreign div { color: ${currentTheme === 'dark' ? '#ffffff' : '#000000'}; font-family: sans-serif; font-size: 14px; }
+                    h1 { font-size: 22px; font-weight: 700; margin: 0; }
+                    h2 { font-size: 18px; font-weight: 600; margin: 0; }
+                    strong { font-weight: 700; }
+                    .markmap-link { stroke: ${currentTheme === 'dark' ? '#cbd5e1' : '#546e7a'}; }
+                    .markmap-node circle, .markmap-node rect { stroke: ${currentTheme === 'dark' ? '#94a3b8' : '#94a3b8'}; }
+                `;
+                clonedSvg.prepend(style);
+                const svgData = new XMLSerializer().serializeToString(clonedSvg);
                 copyToClipboard(svgData, downloadSvgBtn);
             };
 
@@ -539,95 +562,183 @@ SCRIPT_TEMPLATE_MINDMAP = """
             };
 
             const handleDownloadPNG = () => {
+                const btn = downloadPngBtn;
+                const originalText = btn.querySelector('.btn-text').textContent;
+                btn.querySelector('.btn-text').textContent = '生成中...';
+                btn.disabled = true;
+
                 const svg = containerEl.querySelector('svg');
-                if (!svg) return;
-                const serializer = new XMLSerializer();
-                const svgData = serializer.serializeToString(svg);
-                const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-                const url = URL.createObjectURL(svgBlob);
-                const img = new Image();
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const rect = svg.getBoundingClientRect();
-                    canvas.width = Math.max(rect.width, 1200);
-                    canvas.height = Math.max(rect.height, 800);
-                    const ctx = canvas.getContext('2d');
-                    ctx.fillStyle = getComputedStyle(containerEl).getPropertyValue('--card-bg-color') || '#ffffff';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(img, 0, 0);
-                    canvas.toBlob((blob) => {
-                        if (!blob) return;
-                        const link = document.createElement('a');
-                        link.href = URL.createObjectURL(blob);
-                        link.download = 'mindmap.png';
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        URL.revokeObjectURL(link.href);
-                        showFeedback(downloadPngBtn);
-                    }, 'image/png');
-                    URL.revokeObjectURL(url);
-                };
-                img.onerror = () => showFeedback(downloadPngBtn, '失败', '失败');
-                img.src = url;
-            };
-
-            let baseTransform = '';
-            let currentScale = 1;
-            const minScale = 0.6;
-            const maxScale = 2.4;
-            const step = 0.2;
-
-            const updateBaseTransform = () => {
-                const g = svgEl.querySelector('g');
-                if (g) {
-                    baseTransform = g.getAttribute('transform') || 'translate(0,0)';
+                if (!svg) {
+                    btn.querySelector('.btn-text').textContent = originalText;
+                    btn.disabled = false;
+                    showFeedback(btn, '失败', '失败');
+                    return;
                 }
-            };
 
-            const applyScale = () => {
-                const g = svgEl.querySelector('g');
-                if (!g) return;
-                const translatePart = (baseTransform.match(/translate\([^)]*\)/) || ['translate(0,0)'])[0];
-                g.setAttribute('transform', `${translatePart} scale(${currentScale})`);
+                try {
+                    // Clone SVG and inline styles
+                    const clonedSvg = svg.cloneNode(true);
+                    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                    clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+                    
+                    const rect = svg.getBoundingClientRect();
+                    const width = rect.width || 800;
+                    const height = rect.height || 600;
+                    clonedSvg.setAttribute('width', width);
+                    clonedSvg.setAttribute('height', height);
+
+                    // Remove foreignObject (HTML content) and replace with text
+                    const foreignObjects = clonedSvg.querySelectorAll('foreignObject');
+                    foreignObjects.forEach(fo => {
+                        const text = fo.textContent || '';
+                        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                        const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        textEl.setAttribute('x', fo.getAttribute('x') || '0');
+                        textEl.setAttribute('y', (parseFloat(fo.getAttribute('y') || '0') + 14).toString());
+                        textEl.setAttribute('fill', currentTheme === 'dark' ? '#ffffff' : '#000000');
+                        textEl.setAttribute('font-family', 'sans-serif');
+                        textEl.setAttribute('font-size', '14');
+                        textEl.textContent = text.trim();
+                        g.appendChild(textEl);
+                        fo.parentNode.replaceChild(g, fo);
+                    });
+
+                    // Inline styles
+                    const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+                    style.textContent = `
+                        text { font-family: sans-serif; font-size: 14px; fill: ${currentTheme === 'dark' ? '#ffffff' : '#000000'}; }
+                        .markmap-link { fill: none; stroke: ${currentTheme === 'dark' ? '#cbd5e1' : '#546e7a'}; stroke-width: 2; }
+                        .markmap-node circle { stroke: ${currentTheme === 'dark' ? '#94a3b8' : '#94a3b8'}; stroke-width: 2; }
+                    `;
+                    clonedSvg.insertBefore(style, clonedSvg.firstChild);
+
+                    // Add background rect
+                    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    bgRect.setAttribute('width', '100%');
+                    bgRect.setAttribute('height', '100%');
+                    bgRect.setAttribute('fill', currentTheme === 'dark' ? '#1f2937' : '#ffffff');
+                    clonedSvg.insertBefore(bgRect, clonedSvg.firstChild);
+
+                    const svgData = new XMLSerializer().serializeToString(clonedSvg);
+                    const svgBase64 = btoa(unescape(encodeURIComponent(svgData)));
+                    const dataUrl = 'data:image/svg+xml;base64,' + svgBase64;
+
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const scale = 2;
+                        canvas.width = width * scale;
+                        canvas.height = height * scale;
+                        const ctx = canvas.getContext('2d');
+                        ctx.scale(scale, scale);
+                        ctx.fillStyle = currentTheme === 'dark' ? '#1f2937' : '#ffffff';
+                        ctx.fillRect(0, 0, width, height);
+                        ctx.drawImage(img, 0, 0, width, height);
+
+                        canvas.toBlob((blob) => {
+                            if (!blob) {
+                                btn.querySelector('.btn-text').textContent = originalText;
+                                btn.disabled = false;
+                                showFeedback(btn, '失败', '失败');
+                                return;
+                            }
+                            
+                            // Use non-bubbling MouseEvent to avoid router interception
+                            const a = document.createElement('a');
+                            a.download = 'mindmap.png';
+                            a.href = URL.createObjectURL(blob);
+                            a.style.display = 'none';
+                            document.body.appendChild(a);
+                            
+                            const evt = new MouseEvent('click', {
+                                view: window,
+                                bubbles: false,
+                                cancelable: false
+                            });
+                            a.dispatchEvent(evt);
+                            
+                            setTimeout(() => {
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(a.href);
+                            }, 100);
+
+                            btn.querySelector('.btn-text').textContent = originalText;
+                            btn.disabled = false;
+                            showFeedback(btn);
+                        }, 'image/png');
+                    };
+                    
+                    img.onerror = (e) => {
+                        console.error('PNG image load error:', e);
+                        btn.querySelector('.btn-text').textContent = originalText;
+                        btn.disabled = false;
+                        showFeedback(btn, '失败', '失败');
+                    };
+                    
+                    img.src = dataUrl;
+                } catch (err) {
+                    console.error('PNG export error:', err);
+                    btn.querySelector('.btn-text').textContent = originalText;
+                    btn.disabled = false;
+                    showFeedback(btn, '失败', '失败');
+                }
             };
 
             const handleZoom = (direction) => {
                 if (direction === 'reset') {
-                    currentScale = 1;
                     markmapInstance.fit();
-                    updateBaseTransform();
-                    applyScale();
                     return;
                 }
-                currentScale = Math.min(maxScale, Math.max(minScale, currentScale + (direction === 'in' ? step : -step)));
-                applyScale();
+                // Simple zoom simulation if d3 zoom instance is not accessible
+                // Markmap uses d3-zoom, so we can try to select the svg and transition
+                const svg = d3.select(svgEl);
+                // We can't easily access the internal zoom behavior object created by markmap
+                // So we rely on fit() for reset, and maybe just let user scroll/pinch for zoom
+                // Or we can try to rescale if supported
+                if (markmapInstance.rescale) {
+                    const scale = direction === 'in' ? 1.25 : 0.8;
+                    markmapInstance.rescale(scale);
+                } else {
+                    // Fallback: just fit, as manual transform manipulation conflicts with d3
+                    // Or we could try to find the zoom behavior attached to the node
+                    // const zoom = d3.zoomTransform(svgEl);
+                    // But we need the zoom behavior function to call scaleBy
+                }
             };
 
-            const handleExpand = (level) => {
-                markmapInstance.setOptions({ initialExpandLevel: level });
-                markmapInstance.setData(root);
+            const handleDepthChange = (e) => {
+                const level = parseInt(e.target.value, 10);
+                const expandLevel = level === 0 ? Infinity : level;
+                
+                // Deep clone root to reset internal state (payload.fold) added by markmap
+                const cleanRoot = JSON.parse(JSON.stringify(root));
+                
+                markmapInstance.setOptions({ initialExpandLevel: expandLevel });
+                markmapInstance.setData(cleanRoot);
                 markmapInstance.fit();
-                currentScale = 1;
-                updateBaseTransform();
-                applyScale();
             };
 
             const handleFullscreen = () => {
                 const el = containerEl;
                 if (!document.fullscreenElement) {
-                    (el.requestFullscreen && el.requestFullscreen());
+                    el.requestFullscreen().then(() => {
+                        setTimeout(() => markmapInstance.fit(), 200);
+                    });
                 } else {
-                    document.exitFullscreen && document.exitFullscreen();
+                    document.exitFullscreen();
                 }
             };
+            
+            document.addEventListener('fullscreenchange', () => {
+                if (document.fullscreenElement === containerEl) {
+                    setTimeout(() => markmapInstance.fit(), 200);
+                }
+            });
 
             const handleThemeToggle = () => {
                 currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
                 setTheme(wrapper, currentTheme);
             };
-
-            updateBaseTransform();
 
             downloadSvgBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleDownloadSVG(); });
             downloadMdBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleDownloadMD(); });
@@ -635,8 +746,7 @@ SCRIPT_TEMPLATE_MINDMAP = """
             zoomInBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleZoom('in'); });
             zoomOutBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleZoom('out'); });
             zoomResetBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleZoom('reset'); });
-            expandAllBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleExpand(Infinity); });
-            collapseAllBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleExpand(1); });
+            depthSelect?.addEventListener('change', (e) => { e.stopPropagation(); handleDepthChange(e); });
             fullscreenBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleFullscreen(); });
             themeToggleBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleThemeToggle(); });
         };
