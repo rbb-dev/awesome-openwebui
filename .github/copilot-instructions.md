@@ -39,6 +39,14 @@ README 文件应包含以下内容：
 - 故障排除指南 / Troubleshooting guide
 - 版本和作者信息 / Version and author information
 
+### 官方文档 (Official Documentation)
+
+如果插件被合并到主仓库，还需更新 `docs/` 目录下的相关文档：
+- `docs/plugins/{type}/plugin-name.md`
+- `docs/plugins/{type}/plugin-name.zh.md`
+
+其中 `{type}` 对应插件类型（如 `actions`, `filters`, `pipes` 等）。
+
 ---
 
 ## 📝 文档字符串规范 (Docstring Standard)
@@ -366,6 +374,94 @@ from fastapi import Request
 # 3. OpenWebUI imports
 from open_webui.utils.chat import generate_chat_completion
 from open_webui.models.users import Users
+```
+
+---
+
+## 📄 文件导出与命名规范 (File Export and Naming)
+
+对于涉及文件导出的插件（通常是 Action），必须提供灵活的标题生成策略。
+
+### Valves 配置 (Valves Configuration)
+
+应包含 `TITLE_SOURCE` 选项：
+
+```python
+class Valves(BaseModel):
+    TITLE_SOURCE: str = Field(
+        default="chat_title",
+        description="Title Source: 'chat_title', 'ai_generated', 'markdown_title'",
+    )
+```
+
+### 标题获取逻辑 (Title Retrieval Logic)
+
+1.  **chat_title**: 尝试从 `body` 获取，若失败且有 `chat_id`，则从数据库获取 (`Chats.get_chat_by_id`)。
+2.  **markdown_title**: 从 Markdown 内容提取第一个 H1 或 H2。
+3.  **ai_generated**: 使用轻量级 Prompt 让 AI 生成简短标题。
+
+### 优先级与回退 (Priority and Fallback)
+
+代码应根据 `TITLE_SOURCE` 优先尝试指定方法，若失败则按以下顺序回退：
+`chat_title` -> `markdown_title` -> `user_name + date`
+
+```python
+# 核心逻辑示例
+if self.valves.TITLE_SOURCE == "chat_title":
+    title = chat_title
+elif self.valves.TITLE_SOURCE == "markdown_title":
+    title = self.extract_title(content)
+elif self.valves.TITLE_SOURCE == "ai_generated":
+    title = await self.generate_title_using_ai(...)
+```
+
+### AI 标题生成实现 (AI Title Generation Implementation)
+
+如果支持 `ai_generated` 选项，应实现类似以下的方法：
+
+```python
+async def generate_title_using_ai(
+    self, 
+    body: dict, 
+    content: str, 
+    user_id: str, 
+    request: Any
+) -> str:
+    """Generates a short title using the current LLM model."""
+    if not request:
+        return ""
+
+    try:
+        # 获取当前用户和模型
+        user_obj = Users.get_user_by_id(user_id)
+        model = body.get("model")
+
+        # 构造请求
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system", 
+                    "content": "You are a helpful assistant. Generate a short, concise title (max 10 words) for the following text. Do not use quotes. Only output the title."
+                },
+                {
+                    "role": "user", 
+                    "content": content[:2000]  # 限制上下文长度以节省 Token
+                }
+            ],
+            "stream": False,
+        }
+
+        # 调用 OpenWebUI 内部生成接口
+        response = await generate_chat_completion(request, payload, user_obj)
+        
+        if response and "choices" in response:
+            return response["choices"][0]["message"]["content"].strip()
+            
+    except Exception as e:
+        logger.error(f"Error generating title: {e}")
+
+    return ""
 ```
 
 ---

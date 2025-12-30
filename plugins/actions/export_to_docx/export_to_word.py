@@ -25,6 +25,9 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from open_webui.models.chats import Chats
+from open_webui.models.users import Users
+from open_webui.utils.chat import generate_chat_completion
+from pydantic import BaseModel, Field
 
 # Pygments for syntax highlighting
 try:
@@ -45,8 +48,14 @@ logger = logging.getLogger(__name__)
 
 
 class Action:
+    class Valves(BaseModel):
+        TITLE_SOURCE: str = Field(
+            default="chat_title",
+            description="Title Source: 'chat_title' (Chat Title), 'ai_generated' (AI Generated), 'markdown_title' (Markdown Title)",
+        )
+
     def __init__(self):
-        pass
+        self.valves = self.Valves()
 
     async def _send_notification(self, emitter: Callable, type: str, content: str):
         await emitter(
@@ -60,6 +69,7 @@ class Action:
         __event_emitter__=None,
         __event_call__: Optional[Callable[[Any], Awaitable[None]]] = None,
         __metadata__: Optional[dict] = None,
+        __request__: Optional[Any] = None,
     ):
         logger.info(f"action:{__name__}")
 
@@ -101,26 +111,54 @@ class Action:
                     )
                     return
 
-                # Generate filename (prefer chat title; fetch via chat_id if missing; then markdown title; then fallback)
+                # Generate filename
+                title = ""
                 chat_id = self.extract_chat_id(body, __metadata__)
-                chat_title = self.extract_chat_title(body)
-                if not chat_title and chat_id:
+
+                # Fetch chat_title directly via chat_id as it's usually missing in body
+                chat_title = ""
+                if chat_id:
                     chat_title = await self.fetch_chat_title(chat_id, user_id)
-                title = self.extract_title(message_content)
+
+                if (
+                    self.valves.TITLE_SOURCE == "chat_title"
+                    or not self.valves.TITLE_SOURCE
+                ):
+                    title = chat_title
+                elif self.valves.TITLE_SOURCE == "markdown_title":
+                    title = self.extract_title(message_content)
+                elif self.valves.TITLE_SOURCE == "ai_generated":
+                    title = await self.generate_title_using_ai(
+                        body, message_content, user_id, __request__
+                    )
+
+                # Fallback logic
+                if not title:
+                    if self.valves.TITLE_SOURCE != "chat_title" and chat_title:
+                        title = chat_title
+                    elif self.valves.TITLE_SOURCE != "markdown_title":
+                        extracted = self.extract_title(message_content)
+                        if extracted:
+                            title = extracted
+
                 current_datetime = datetime.datetime.now()
                 formatted_date = current_datetime.strftime("%Y%m%d")
 
-                if chat_title:
-                    filename = f"{self.clean_filename(chat_title)}.docx"
-                elif title:
+                if title:
                     filename = f"{self.clean_filename(title)}.docx"
                 else:
                     filename = f"{user_name}_{formatted_date}.docx"
 
+                top_heading = ""
+                if chat_title:
+                    top_heading = chat_title
+                elif title:
+                    top_heading = title
+
                 # Create Word document; if no h1 exists, inject chat title as h1
                 has_h1 = bool(re.search(r"^#\s+.+$", message_content, re.MULTILINE))
                 doc = self.markdown_to_docx(
-                    message_content, top_heading=chat_title, has_h1=has_h1
+                    message_content, top_heading=top_heading, has_h1=has_h1
                 )
 
                 # Save to memory
@@ -193,6 +231,36 @@ class Action:
                     "error",
                     f"Error exporting Word document: {str(e)}",
                 )
+
+    async def generate_title_using_ai(
+        self, body: dict, content: str, user_id: str, request: Any
+    ) -> str:
+        if not request:
+            return ""
+
+        try:
+            user_obj = Users.get_user_by_id(user_id)
+            model = body.get("model")
+
+            payload = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant. Generate a short, concise title (max 10 words) for the following text. Do not use quotes. Only output the title.",
+                    },
+                    {"role": "user", "content": content[:2000]},  # Limit content length
+                ],
+                "stream": False,
+            }
+
+            response = await generate_chat_completion(request, payload, user_obj)
+            if response and "choices" in response:
+                return response["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logger.error(f"Error generating title: {e}")
+
+        return ""
 
     def extract_title(self, content: str) -> str:
         """Extract title from Markdown h1/h2 only"""

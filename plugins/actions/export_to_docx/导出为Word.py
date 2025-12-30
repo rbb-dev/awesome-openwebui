@@ -25,6 +25,9 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from open_webui.models.chats import Chats
+from open_webui.models.users import Users
+from open_webui.utils.chat import generate_chat_completion
+from pydantic import BaseModel, Field
 
 # Pygments for syntax highlighting
 try:
@@ -45,8 +48,14 @@ logger = logging.getLogger(__name__)
 
 
 class Action:
+    class Valves(BaseModel):
+        TITLE_SOURCE: str = Field(
+            default="chat_title",
+            description="标题来源: 'chat_title' (对话标题), 'ai_generated' (AI 生成), 'markdown_title' (Markdown 标题)",
+        )
+
     def __init__(self):
-        pass
+        self.valves = self.Valves()
 
     async def _send_notification(self, emitter: Callable, type: str, content: str):
         await emitter(
@@ -60,6 +69,7 @@ class Action:
         __event_emitter__=None,
         __event_call__: Optional[Callable[[Any], Awaitable[None]]] = None,
         __metadata__: Optional[dict] = None,
+        __request__: Optional[Any] = None,
     ):
         logger.info(f"action:{__name__}")
 
@@ -98,26 +108,54 @@ class Action:
                     )
                     return
 
-                # 生成文件名（优先对话标题；若缺失则通过 chat_id 查询；再到 Markdown 标题；最后用户+日期）
+                # 生成文件名
+                title = ""
                 chat_id = self.extract_chat_id(body, __metadata__)
-                chat_title = self.extract_chat_title(body)
-                if not chat_title and chat_id:
+
+                # 直接通过 chat_id 获取标题，因为 body 中通常不包含标题
+                chat_title = ""
+                if chat_id:
                     chat_title = await self.fetch_chat_title(chat_id, user_id)
-                title = self.extract_title(message_content)
+
+                # 根据配置决定文件名使用的标题
+                if (
+                    self.valves.TITLE_SOURCE == "chat_title"
+                    or not self.valves.TITLE_SOURCE
+                ):
+                    title = chat_title
+                elif self.valves.TITLE_SOURCE == "markdown_title":
+                    title = self.extract_title(message_content)
+                elif self.valves.TITLE_SOURCE == "ai_generated":
+                    title = await self.generate_title_using_ai(
+                        body, message_content, user_id, __request__
+                    )
+
                 current_datetime = datetime.datetime.now()
                 formatted_date = current_datetime.strftime("%Y%m%d")
 
-                if chat_title:
-                    filename = f"{self.clean_filename(chat_title)}.docx"
-                elif title:
+                if title:
                     filename = f"{self.clean_filename(title)}.docx"
                 else:
                     filename = f"{user_name}_{formatted_date}.docx"
 
                 # 创建 Word 文档；若正文无一级标题，使用对话标题作为一级标题
+                # 如果选择了 chat_title 且获取到了，则作为 top_heading
+                # 如果选择了其他方式，title 就是文件名，也可以作为 top_heading
+
+                # 保持原有逻辑：top_heading 主要是为了在文档开头补充标题
+                # 这里我们尽量使用 chat_title 作为 top_heading，如果它存在的话，因为它通常是对话的主题
+                # 即使文件名是 AI 生成的，文档内的标题用 chat_title 也是合理的
+                # 但如果用户选择了 markdown_title，可能不希望插入 chat_title
+
+                top_heading = ""
+                if chat_title:
+                    top_heading = chat_title
+                elif title:
+                    top_heading = title
+
                 has_h1 = bool(re.search(r"^#\s+.+$", message_content, re.MULTILINE))
                 doc = self.markdown_to_docx(
-                    message_content, top_heading=chat_title, has_h1=has_h1
+                    message_content, top_heading=top_heading, has_h1=has_h1
                 )
 
                 # 保存到内存
@@ -188,6 +226,36 @@ class Action:
                 await self._send_notification(
                     __event_emitter__, "error", f"导出 Word 文档时出错: {str(e)}"
                 )
+
+    async def generate_title_using_ai(
+        self, body: dict, content: str, user_id: str, request: Any
+    ) -> str:
+        if not request:
+            return ""
+
+        try:
+            user_obj = Users.get_user_by_id(user_id)
+            model = body.get("model")
+
+            payload = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant. Generate a short, concise title (max 10 words) for the following text. Do not use quotes. Only output the title.",
+                    },
+                    {"role": "user", "content": content[:2000]},  # Limit content length
+                ],
+                "stream": False,
+            }
+
+            response = await generate_chat_completion(request, payload, user_obj)
+            if response and "choices" in response:
+                return response["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logger.error(f"Error generating title: {e}")
+
+        return ""
 
     def extract_title(self, content: str) -> str:
         """从 Markdown 内容提取一级/二级标题"""

@@ -9,7 +9,16 @@ Export current conversation from Markdown to Word (.docx) with **syntax highligh
 - **Syntax Highlighting**: Code blocks are highlighted with Pygments (supports 500+ languages).
 - **Blockquote Support**: Markdown blockquotes are rendered with left border and gray styling.
 - **Multi-language Support**: Properly handles both Chinese and English text without garbled characters.
-- **Smarter Filenames**: Prefers chat title (from body or chat_id lookup) → first Markdown h1/h2 → user + date.
+- **Smarter Filenames**: Configurable title source (Chat Title, AI Generated, or Markdown Title).
+
+## Configuration
+
+You can configure the following settings via the **Valves** button in the plugin settings:
+
+- **TITLE_SOURCE**: Choose how the document title/filename is generated.
+    - `chat_title`: Use the conversation title (default).
+    - `ai_generated`: Use AI to generate a short title based on the content.
+    - `markdown_title`: Extract the first h1/h2 heading from the Markdown content.
 
 ## Supported Markdown Syntax
 

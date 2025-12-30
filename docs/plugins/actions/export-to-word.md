@@ -17,7 +17,17 @@ The Export to Word plugin converts chat messages from Markdown to a polished Wor
 - :material-format-bold: **Rich Markdown Support**: Headings, bold/italic, lists, tables
 - :material-code-tags: **Syntax Highlighting**: Pygments-powered code blocks
 - :material-format-quote-close: **Styled Blockquotes**: Left-border gray quote styling
-- :material-file-document-outline: **Smart Filenames**: Prefers chat title → Markdown title → user/date
+- :material-file-document-outline: **Smart Filenames**: Configurable title source (Chat Title, AI Generated, or Markdown Title)
+
+---
+
+## Configuration
+
+You can configure the following settings via the **Valves** button in the plugin settings:
+
+| Valve          | Description                                                                                 | Default      |
+| :------------- | :------------------------------------------------------------------------------------------ | :----------- |
+| `TITLE_SOURCE` | Source for document title/filename. Options: `chat_title`, `ai_generated`, `markdown_title` | `chat_title` |
 
 ---
 
@@ -39,21 +49,21 @@ The Export to Word plugin converts chat messages from Markdown to a polished Wor
 
 ## Supported Markdown
 
-| Syntax | Word Result |
-| :---------------------------------- | :-------------------------------- |
-| `# Heading 1` to `###### Heading 6` | Heading levels 1-6 |
-| `**bold**` / `__bold__` | Bold text |
-| `*italic*` / `_italic_` | Italic text |
-| `***bold italic***` | Bold + Italic |
-| `` `inline code` `` | Monospace with gray background |
-| <code>``` code block ```</code> | Syntax-highlighted code block |
-| `> blockquote` | Left-bordered gray italic text |
-| `[link](url)` | Blue underlined link |
-| `~~strikethrough~~` | Strikethrough |
-| `- item` / `* item` | Bullet list |
-| `1. item` | Numbered list |
-| Markdown tables | Grid table |
-| `---` / `***` | Horizontal rule |
+| Syntax                              | Word Result                    |
+| :---------------------------------- | :----------------------------- |
+| `# Heading 1` to `###### Heading 6` | Heading levels 1-6             |
+| `**bold**` / `__bold__`             | Bold text                      |
+| `*italic*` / `_italic_`             | Italic text                    |
+| `***bold italic***`                 | Bold + Italic                  |
+| `` `inline code` ``                 | Monospace with gray background |
+| <code>``` code block ```</code>     | Syntax-highlighted code block  |
+| `> blockquote`                      | Left-bordered gray italic text |
+| `[link](url)`                       | Blue underlined link           |
+| `~~strikethrough~~`                 | Strikethrough                  |
+| `- item` / `* item`                 | Bullet list                    |
+| `1. item`                           | Numbered list                  |
+| Markdown tables                     | Grid table                     |
+| `---` / `***`                       | Horizontal rule                |
 
 ---
 
