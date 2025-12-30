@@ -65,3 +65,12 @@
 *   此过滤器旨在增强多模型对话的连贯性，通过提供更丰富的上下文来帮助模型理解后续问题。
 *   确保您的 Open WebUI 实例中已配置并启用了 `gemini_manifold` 或其他能够产生多模型回答的工具，以便此过滤器能够检测到多模型历史。
 *   此过滤器不会增加额外的模型调用，因此不会显著增加延迟或成本。它只是对现有历史数据进行格式化和注入。
+
+## 作者
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## 许可证
+
+MIT License

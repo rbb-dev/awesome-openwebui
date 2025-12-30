@@ -39,3 +39,12 @@ Generate polished learning flashcards from any text—title, summary, key points
 
 - Very short text triggers a prompt to add more; consider summarizing first.
 - Long text is accepted; for deep analysis, pre-condense with other tools before card creation.
+
+## Author
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## License
+
+MIT License

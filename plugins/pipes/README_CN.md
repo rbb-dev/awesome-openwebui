@@ -6,9 +6,9 @@
 
 ## 📋 管道插件列表
 
-| 插件名称 | 描述 | 文档 |
-| :--- | :--- | :--- |
-| **示例管道** | 创建管道插件的模板/示例 | [中文](./example-pipe/README_CN.md) / [English](./example-pipe/README.md) |
+| 插件名称       | 描述                                                     | 文档                                                                        |
+| :------------- | :------------------------------------------------------- | :-------------------------------------------------------------------------- |
+| **示例管道**   | 创建管道插件的模板/示例                                  | [中文](./example-pipe/README_CN.md) / [English](./example-pipe/README.md)   |
 | **AI代理管道** | 将AI响应转换为完整的代理工作流程，包含多轮思考和工具调用 | [中文](./ai-agent-pipe/README_CN.md) / [English](./ai-agent-pipe/README.md) |
 
 ## 🎯 什么是管道插件？
@@ -58,3 +58,12 @@
 ---
 
 > **贡献者注意**：我们欢迎贡献新的管道插件！请为每个新增插件提供清晰完整的文档，包括功能说明、配置方法、使用示例和故障排除指南。
+
+## 作者
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## 许可证
+
+MIT License

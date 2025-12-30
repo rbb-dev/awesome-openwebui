@@ -6,9 +6,9 @@ Pipes process and enhance LLM responses after they are generated and before they
 
 ## 📋 Pipe Plugins List
 
-| Plugin Name | Description | Documentation |
-| :--- | :--- | :--- |
-| **Example Pipe** | A template/example for creating pipe plugins | [English](./example-pipe/README.md) / [中文](./example-pipe/README_CN.md) |
+| Plugin Name       | Description                                                                                        | Documentation                                                               |
+| :---------------- | :------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------- |
+| **Example Pipe**  | A template/example for creating pipe plugins                                                       | [English](./example-pipe/README.md) / [中文](./example-pipe/README_CN.md)   |
 | **AI Agent Pipe** | Transforms AI responses into complete agent workflows with multiple thinking rounds and tool calls | [English](./ai-agent-pipe/README.md) / [中文](./ai-agent-pipe/README_CN.md) |
 
 ## 🎯 What are Pipe Plugins?
@@ -58,3 +58,12 @@ When adding a new pipe plugin, please follow these steps:
 ---
 
 > **Contributor Note**: We welcome contributions of new pipe plugins! Please provide clear and complete documentation for each new plugin, including features, configuration, usage examples, and troubleshooting guides.
+
+## Author
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## License
+
+MIT License

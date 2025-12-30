@@ -13,3 +13,12 @@
 1. 安装插件。
 2. 发送长文本或文章到聊天框。
 3. 点击“精读”按钮（或通过命令触发）。
+
+## 作者
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## 许可证
+
+MIT License

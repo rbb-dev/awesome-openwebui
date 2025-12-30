@@ -119,6 +119,15 @@ plugins/
 - [ ] 性能考虑
 - [ ] 版本和作者信息
 
+## 作者
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## 许可证
+
+MIT License
+
 ---
 
 > **注意**：有关每种插件类型的详细信息，请参阅每个插件类型目录中的相应 README 文件。

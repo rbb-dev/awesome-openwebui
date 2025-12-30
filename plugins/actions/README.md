@@ -6,10 +6,10 @@ Action plugins allow you to define custom functionalities that can be triggered 
 
 ## 📋 Action Plugins List
 
-| Plugin Name | Description | Version | Documentation |
-| :--- | :--- | :--- | :--- |
-| **Smart Mind Map** | Intelligently analyzes text content and generates interactive mind maps | 0.7.2 | [English](./smart-mind-map/README.md) / [中文](./smart-mind-map/README_CN.md) |
-| **Flash Card (闪记卡)** | Quickly generates beautiful learning memory cards, perfect for studying and quick memorization | 0.2.0 | [English](./knowledge-card/README.md) / [中文](./knowledge-card/README_CN.md) |
+| Plugin Name             | Description                                                                                    | Version | Documentation                                                                 |
+| :---------------------- | :--------------------------------------------------------------------------------------------- | :------ | :---------------------------------------------------------------------------- |
+| **Smart Mind Map**      | Intelligently analyzes text content and generates interactive mind maps                        | 0.7.2   | [English](./smart-mind-map/README.md) / [中文](./smart-mind-map/README_CN.md) |
+| **Flash Card (闪记卡)** | Quickly generates beautiful learning memory cards, perfect for studying and quick memorization | 0.2.0   | [English](./knowledge-card/README.md) / [中文](./knowledge-card/README_CN.md) |
 
 ## 🎯 What are Action Plugins?
 
@@ -225,3 +225,12 @@ except Exception as e:
 ---
 
 > **Contributor Note**: To ensure project quality, please provide clear and complete documentation for each new plugin, including features, configuration, usage examples, and troubleshooting guides. Refer to the common features above when developing your plugins.
+
+## Author
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## License
+
+MIT License

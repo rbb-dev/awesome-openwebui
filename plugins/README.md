@@ -119,6 +119,15 @@ Each plugin should include:
 - [ ] Performance considerations
 - [ ] Version and author information
 
+## Author
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## License
+
+MIT License
+
 ---
 
 > **Note**: For detailed information about each plugin type, see the respective README files in each plugin type directory.

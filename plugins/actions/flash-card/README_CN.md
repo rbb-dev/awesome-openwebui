@@ -39,3 +39,12 @@
 
 - 文本过短会提醒补充，可先汇总再生成卡片。
 - 长文本无需截断，直接生成；如需深度分析可先用其他工具精炼后再制作卡片。
+
+## 作者
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## 许可证
+
+MIT License

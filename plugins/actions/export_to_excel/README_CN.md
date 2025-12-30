@@ -13,3 +13,12 @@
 1. 安装插件。
 2. 在任意对话中，点击“导出为 Excel”按钮。
 3. 文件将自动下载到你的设备。
+
+## 作者
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## 许可证
+
+MIT License

@@ -6,8 +6,8 @@ Filters process and modify user input before it is sent to the LLM. This directo
 
 ## 📋 Filter List
 
-| Filter Name | Description | Documentation |
-| :--- | :--- | :--- |
+| Filter Name                   | Description                                                                                                                                           | Documentation                                                                                                                             |
+| :---------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------- |
 | **Async Context Compression** | Reduces token consumption in long conversations through intelligent summarization and message compression while maintaining conversational coherence. | [English](./async-context-compression/async_context_compression.md) / [中文](./async-context-compression/async_context_compression_cn.md) |
 
 ## 🚀 Quick Start
@@ -43,3 +43,12 @@ When adding a new filter, please follow these steps:
 ---
 
 > **Contributor Note**: To ensure project maintainability and user experience, please provide clear and complete documentation for each new filter, including feature description, parameter configuration, usage examples, and troubleshooting guide.
+
+## Author
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## License
+
+MIT License

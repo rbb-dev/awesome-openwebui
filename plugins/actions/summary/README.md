@@ -13,3 +13,12 @@ A powerful tool for analyzing long texts, generating detailed summaries, key poi
 1. Install the plugin.
 2. Send a long text or article to the chat.
 3. Click the "Deep Reading" button (or trigger via command).
+
+## Author
+
+Fu-Jie
+GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
+
+## License
+
+MIT License
