@@ -1,18 +1,20 @@
 """
-title: 智绘心图
+title: 思维导图
 icon_url: data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxyZWN0IHg9IjE2IiB5PSIxNiIgd2lkdGg9IjYiIGhlaWdodD0iNiIgcng9IjEiLz48cmVjdCB4PSIyIiB5PSIxNiIgd2lkdGg9IjYiIGhlaWdodD0iNiIgcng9IjEiLz48cmVjdCB4PSI5IiB5PSIyIiB3aWR0aD0iNiIgaGVpZ2h0PSI2IiByeD0iMSIvPjxwYXRoIGQ9Ik01IDE2di0zYTEgMSAwIDAgMSAxLTFoMTJhMSAxIDAgMCAxIDEgMXYzIi8+PHBhdGggZD0iTTEyIDEyVjgiLz48L3N2Zz4=
-version: 0.7.4
+version: 0.8.0
 description: 智能分析文本内容,生成交互式思维导图,帮助用户结构化和可视化知识。
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
 import logging
-import time
+import os
 import re
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo
+
 from fastapi import Request
-from datetime import datetime
-import pytz
+from pydantic import BaseModel, Field
 
 from open_webui.utils.chat import generate_chat_completion
 from open_webui.models.users import Users
@@ -75,23 +77,19 @@ HTML_WRAPPER_TEMPLATE = """
         }
         #main-container { 
             display: flex; 
-            flex-wrap: wrap; 
+            flex-direction: column; 
             gap: 20px; 
-            align-items: flex-start; 
+            align-items: stretch; 
             width: 100%;
         }
         .plugin-item { 
-            flex: 1 1 400px; /* 默认宽度，允许伸缩 */
-            min-width: 300px; 
+            width: 100%; 
             border-radius: 12px; 
-            overflow: hidden; 
+            overflow: visible; 
             transition: all 0.3s ease;
         }
         .plugin-item:hover {
             transform: translateY(-2px);
-        }
-        @media (max-width: 768px) { 
-            .plugin-item { flex: 1 1 100%; } 
         }
         /* STYLES_INSERTION_POINT */
     </style>
@@ -115,13 +113,24 @@ CSS_TEMPLATE_MINDMAP = """
             --muted-text-color: #546e7a;
             --border-color: #e0e0e0;
             --header-gradient: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
-            --shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+            --shadow: 0 10px 20px rgba(0, 0, 0, 0.06);
             --border-radius: 12px;
             --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         }
+        .theme-dark {
+            --primary-color: #64b5f6;
+            --secondary-color: #81c784;
+            --background-color: #111827;
+            --card-bg-color: #1f2937;
+            --text-color: #e5e7eb;
+            --muted-text-color: #9ca3af;
+            --border-color: #374151;
+            --header-gradient: linear-gradient(135deg, #0ea5e9, #22c55e);
+            --shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+        }
         .mindmap-container-wrapper {
             font-family: var(--font-family);
-            line-height: 1.7;
+            line-height: 1.6;
             color: var(--text-color);
             margin: 0;
             padding: 0;
@@ -130,99 +139,110 @@ CSS_TEMPLATE_MINDMAP = """
             height: 100%;
             display: flex;
             flex-direction: column;
+            background: var(--background-color);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
         }
         .header {
             background: var(--header-gradient);
             color: white;
-            padding: 20px 24px;
+            padding: 18px 20px;
             text-align: center;
+            border-top-left-radius: var(--border-radius);
+            border-top-right-radius: var(--border-radius);
         }
         .header h1 {
             margin: 0;
-            font-size: 1.5em;
+            font-size: 1.4em;
             font-weight: 600;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            letter-spacing: 0.3px;
         }
         .user-context {
-            font-size: 0.8em;
+            font-size: 0.85em;
             color: var(--muted-text-color);
-            background-color: #eceff1;
-            padding: 8px 16px;
+            background-color: rgba(255, 255, 255, 0.6);
+            padding: 8px 14px;
             display: flex;
-            justify-content: space-around;
+            justify-content: space-between;
             flex-wrap: wrap;
             border-bottom: 1px solid var(--border-color);
+            gap: 6px;
         }
-        .user-context span { margin: 2px 8px; }
-        .content-area { 
-            padding: 20px;
+        .theme-dark .user-context {
+            background-color: rgba(31, 41, 55, 0.7);
+        }
+        .user-context span { margin: 2px 6px; }
+        .content-area {
+            padding: 16px;
             flex-grow: 1;
+            background: var(--card-bg-color);
         }
         .markmap-container {
             position: relative;
-            background-color: #fff;
-            background-image: radial-gradient(var(--border-color) 0.5px, transparent 0.5px);
-            background-size: 20px 20px;
-            border-radius: 8px;
-            padding: 16px;
+            background-color: var(--card-bg-color);
+            border-radius: 10px;
+            padding: 12px;
             display: flex;
             justify-content: center;
             align-items: center;
             border: 1px solid var(--border-color);
-            box-shadow: inset 0 2px 6px rgba(0,0,0,0.03);
+            width: 100%;
+            min-height: 60vh;
+            overflow: visible;
         }
-        .download-area {
-            text-align: center;
-            padding-top: 20px;
-            margin-top: 20px;
-            border-top: 1px solid var(--border-color);
+        .control-rows {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 12px;
         }
-        .download-btn {
+        .btn-group {
+            display: inline-flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .control-btn {
             background-color: var(--primary-color);
             color: white;
             border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
+            padding: 8px 12px;
+            border-radius: 8px;
             font-size: 0.9em;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s ease-in-out;
-            margin: 0 6px;
+            transition: background-color 0.15s ease, transform 0.15s ease;
             display: inline-flex;
             align-items: center;
             gap: 6px;
         }
-        .download-btn.secondary {
-            background-color: var(--secondary-color);
-        }
-        .download-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-        .download-btn.copied {
-            background-color: #2e7d32;
-        }
+        .control-btn.secondary { background-color: var(--secondary-color); }
+        .control-btn.neutral { background-color: #64748b; }
+        .control-btn:hover { transform: translateY(-1px); }
+        .control-btn.copied { background-color: #2e7d32; }
+        .control-btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .footer {
             text-align: center;
-            padding: 16px;
-            font-size: 0.8em;
-            color: #90a4ae;
-            background-color: #eceff1;
+            padding: 12px;
+            font-size: 0.85em;
+            color: var(--muted-text-color);
+            background-color: var(--card-bg-color);
             border-top: 1px solid var(--border-color);
+            border-bottom-left-radius: var(--border-radius);
+            border-bottom-right-radius: var(--border-radius);
         }
         .footer a {
             color: var(--primary-color);
             text-decoration: none;
             font-weight: 500;
         }
-        .footer a:hover {
-            text-decoration: underline;
-        }
+        .footer a:hover { text-decoration: underline; }
         .error-message {
             color: #c62828;
             background-color: #ffcdd2;
             border: 1px solid #ef9a9a;
-            padding: 16px;
+            padding: 14px;
             border-radius: 8px;
             font-weight: 500;
             font-size: 1em;
@@ -240,15 +260,29 @@ CONTENT_TEMPLATE_MINDMAP = """
             </div>
             <div class="content-area">
                 <div class="markmap-container" id="markmap-container-{unique_id}"></div>
-                <div class="download-area">
-                    <button id="download-svg-btn-{unique_id}" class="download-btn">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        <span class="btn-text">SVG</span>
-                    </button>
-                    <button id="download-md-btn-{unique_id}" class="download-btn secondary">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                        <span class="btn-text">Markdown</span>
-                    </button>
+                <div class="control-rows">
+                    <div class="btn-group">
+                        <button id="download-png-btn-{unique_id}" class="control-btn secondary">
+                            <span class="btn-text">PNG</span>
+                        </button>
+                        <button id="download-svg-btn-{unique_id}" class="control-btn">
+                            <span class="btn-text">SVG</span>
+                        </button>
+                        <button id="download-md-btn-{unique_id}" class="control-btn neutral">
+                            <span class="btn-text">Markdown</span>
+                        </button>
+                    </div>
+                    <div class="btn-group">
+                        <button id="zoom-out-btn-{unique_id}" class="control-btn neutral" title="缩小">-</button>
+                        <button id="zoom-reset-btn-{unique_id}" class="control-btn neutral" title="重置">重置</button>
+                        <button id="zoom-in-btn-{unique_id}" class="control-btn neutral" title="放大">+</button>
+                    </div>
+                    <div class="btn-group">
+                        <button id="expand-all-btn-{unique_id}" class="control-btn secondary">展开全部</button>
+                        <button id="collapse-all-btn-{unique_id}" class="control-btn neutral">折叠</button>
+                        <button id="fullscreen-btn-{unique_id}" class="control-btn">全屏</button>
+                        <button id="theme-toggle-btn-{unique_id}" class="control-btn neutral">主题</button>
+                    </div>
                 </div>
             </div>
             <div class="footer">
@@ -260,13 +294,140 @@ CONTENT_TEMPLATE_MINDMAP = """
 """
 
 SCRIPT_TEMPLATE_MINDMAP = """
-    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-    <script src="https://cdn.jsdelivr.net/npm/markmap-lib@0.17"></script>
-    <script src="https://cdn.jsdelivr.net/npm/markmap-view@0.17"></script>
     <script>
       (function() {
+        const uniqueId = "{unique_id}";
+
+        const loadScriptOnce = (src, checkFn) => {
+            if (checkFn()) return Promise.resolve();
+            return new Promise((resolve, reject) => {
+                const existing = document.querySelector(`script[data-src="${src}"]`);
+                if (existing) {
+                    existing.addEventListener('load', () => resolve());
+                    existing.addEventListener('error', () => reject(new Error('加载失败: ' + src)));
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = true;
+                script.dataset.src = src;
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error('加载失败: ' + src));
+                document.head.appendChild(script);
+            });
+        };
+
+        const ensureMarkmapReady = () =>
+            loadScriptOnce('https://cdn.jsdelivr.net/npm/d3@7', () => window.d3)
+                .then(() => loadScriptOnce('https://cdn.jsdelivr.net/npm/markmap-lib@0.17', () => window.markmap && window.markmap.Transformer))
+                .then(() => loadScriptOnce('https://cdn.jsdelivr.net/npm/markmap-view@0.17', () => window.markmap && window.markmap.Markmap));
+
+        const parseColorLuma = (colorStr) => {
+            if (!colorStr) return null;
+            // hex #rrggbb or rrggbb
+            let m = colorStr.match(/^#?([0-9a-f]{6})$/i);
+            if (m) {
+                const hex = m[1];
+                const r = parseInt(hex.slice(0, 2), 16);
+                const g = parseInt(hex.slice(2, 4), 16);
+                const b = parseInt(hex.slice(4, 6), 16);
+                return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+            }
+            // rgb(r, g, b) or rgba(r, g, b, a)
+            m = colorStr.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+            if (m) {
+                const r = parseInt(m[1], 10);
+                const g = parseInt(m[2], 10);
+                const b = parseInt(m[3], 10);
+                return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+            }
+            return null;
+        };
+
+        const getThemeFromMeta = (doc, scope = 'self') => {
+            const metas = Array.from((doc || document).querySelectorAll('meta[name="theme-color"]'));
+            console.log(`[mindmap ${uniqueId}] [${scope}] meta theme-color count: ${metas.length}`);
+            if (!metas.length) return null;
+            const color = metas[metas.length - 1].content.trim();
+            console.log(`[mindmap ${uniqueId}] [${scope}] meta theme-color picked: "${color}"`);
+            const luma = parseColorLuma(color);
+            if (luma === null) {
+                console.log(`[mindmap ${uniqueId}] [${scope}] meta theme-color invalid format, skip.`);
+                return null;
+            }
+            const inferred = luma < 0.5 ? 'dark' : 'light';
+            console.log(`[mindmap ${uniqueId}] [${scope}] meta theme-color luma=${luma.toFixed(3)}, inferred=${inferred}`);
+            return inferred;
+        };
+
+        const getParentDocumentSafe = () => {
+            try {
+                if (!window.parent || window.parent === window) {
+                    console.log(`[mindmap ${uniqueId}] no parent window or same as self`);
+                    return null;
+                }
+                const pDoc = window.parent.document;
+                // Access a property to trigger potential DOMException on cross-origin
+                void pDoc.title;
+                console.log(`[mindmap ${uniqueId}] parent document accessible, title="${pDoc.title}"`);
+                return pDoc;
+            } catch (err) {
+                console.log(`[mindmap ${uniqueId}] parent document not accessible: ${err.name} - ${err.message}`);
+                return null;
+            }
+        };
+
+        const getThemeFromParentClass = () => {
+            try {
+                if (!window.parent || window.parent === window) return null;
+                const pDoc = window.parent.document;
+                const html = pDoc.documentElement;
+                const body = pDoc.body;
+                const htmlClass = html ? html.className : '';
+                const bodyClass = body ? body.className : '';
+                const htmlDataTheme = html ? html.getAttribute('data-theme') : '';
+                console.log(`[mindmap ${uniqueId}] parent html.class="${htmlClass}", body.class="${bodyClass}", data-theme="${htmlDataTheme}"`);
+                if (htmlDataTheme === 'dark' || bodyClass.includes('dark') || htmlClass.includes('dark')) return 'dark';
+                if (htmlDataTheme === 'light' || bodyClass.includes('light') || htmlClass.includes('light')) return 'light';
+                return null;
+            } catch (err) {
+                console.log(`[mindmap ${uniqueId}] parent class not accessible: ${err.name}`);
+                return null;
+            }
+        };
+
+        const getThemeFromBodyBg = () => {
+            try {
+                const bg = getComputedStyle(document.body).backgroundColor;
+                console.log(`[mindmap ${uniqueId}] self body bg: "${bg}"`);
+                const luma = parseColorLuma(bg);
+                if (luma !== null) {
+                    const inferred = luma < 0.5 ? 'dark' : 'light';
+                    console.log(`[mindmap ${uniqueId}] body bg luma=${luma.toFixed(3)}, inferred=${inferred}`);
+                    return inferred;
+                }
+            } catch (err) {
+                console.log(`[mindmap ${uniqueId}] body bg detection error: ${err}`);
+            }
+            return null;
+        };
+
+        const setTheme = (wrapperEl, explicitTheme) => {
+            console.log(`[mindmap ${uniqueId}] --- theme detection start ---`);
+            const parentDoc = getParentDocumentSafe();
+            const metaThemeParent = parentDoc ? getThemeFromMeta(parentDoc, 'parent') : null;
+            const parentClassTheme = getThemeFromParentClass();
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            
+            // Priority: explicit > metaParent > parentClass > prefers-color-scheme
+            const chosen = explicitTheme || metaThemeParent || parentClassTheme || (prefersDark ? 'dark' : 'light');
+            console.log(`[mindmap ${uniqueId}] setTheme -> explicit=${explicitTheme || 'none'}, metaParent=${metaThemeParent || 'none'}, parentClass=${parentClassTheme || 'none'}, prefersDark=${prefersDark}, chosen=${chosen}`);
+            console.log(`[mindmap ${uniqueId}] --- theme detection end ---`);
+            wrapperEl.classList.toggle('theme-dark', chosen === 'dark');
+            return chosen;
+        };
+
         const renderMindmap = () => {
-            const uniqueId = "{unique_id}";
             const containerEl = document.getElementById('markmap-container-' + uniqueId);
             if (!containerEl || containerEl.dataset.markmapRendered) return;
 
@@ -279,67 +440,73 @@ SCRIPT_TEMPLATE_MINDMAP = """
                 return;
             }
 
-            try {
-                const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            ensureMarkmapReady().then(() => {
+                const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 svgEl.style.width = '100%';
-                svgEl.style.height = 'auto';
-                svgEl.style.minHeight = '300px';
-                containerEl.innerHTML = ''; 
+                svgEl.style.height = '100%';
+                svgEl.style.minHeight = '60vh';
+                containerEl.innerHTML = '';
                 containerEl.appendChild(svgEl);
 
                 const { Transformer, Markmap } = window.markmap;
                 const transformer = new Transformer();
                 const { root } = transformer.transform(markdownContent);
-                
+
                 const style = (id) => `${id} text { font-size: 14px !important; }`;
-
-                const options = { 
+                const options = {
                     autoFit: true,
-                    style: style
+                    style: style,
+                    initialExpandLevel: Infinity
                 };
-                Markmap.create(svgEl, options, root);
-                
-                containerEl.dataset.markmapRendered = 'true';
-                
-                attachDownloadHandlers(uniqueId);
 
-            } catch (error) {
-                console.error('Markmap rendering error:', error);
-                containerEl.innerHTML = '<div class="error-message">⚠️ 思维导图渲染失败！<br>原因：' + error.message + '</div>';
-            }
+                const markmapInstance = Markmap.create(svgEl, options, root);
+                containerEl.dataset.markmapRendered = 'true';
+
+                setupControls({
+                    containerEl,
+                    svgEl,
+                    markmapInstance,
+                    root,
+                });
+
+            }).catch((error) => {
+                console.error('Markmap loading error:', error);
+                containerEl.innerHTML = '<div class="error-message">⚠️ 资源加载失败，请稍后重试。</div>';
+            });
         };
 
-        const attachDownloadHandlers = (uniqueId) => {
+        const setupControls = ({ containerEl, svgEl, markmapInstance, root }) => {
             const downloadSvgBtn = document.getElementById('download-svg-btn-' + uniqueId);
+            const downloadPngBtn = document.getElementById('download-png-btn-' + uniqueId);
             const downloadMdBtn = document.getElementById('download-md-btn-' + uniqueId);
-            const containerEl = document.getElementById('markmap-container-' + uniqueId);
+            const zoomInBtn = document.getElementById('zoom-in-btn-' + uniqueId);
+            const zoomOutBtn = document.getElementById('zoom-out-btn-' + uniqueId);
+            const zoomResetBtn = document.getElementById('zoom-reset-btn-' + uniqueId);
+            const expandAllBtn = document.getElementById('expand-all-btn-' + uniqueId);
+            const collapseAllBtn = document.getElementById('collapse-all-btn-' + uniqueId);
+            const fullscreenBtn = document.getElementById('fullscreen-btn-' + uniqueId);
+            const themeToggleBtn = document.getElementById('theme-toggle-btn-' + uniqueId);
 
-            const showFeedback = (button, isSuccess) => {
-                const buttonText = button.querySelector('.btn-text');
+            const wrapper = containerEl.closest('.mindmap-container-wrapper');
+            let currentTheme = setTheme(wrapper);
+
+            const showFeedback = (button, textOk = '完成', textFail = '失败') => {
+                if (!button) return;
+                const buttonText = button.querySelector('.btn-text') || button;
                 const originalText = buttonText.textContent;
-                
                 button.disabled = true;
-                if (isSuccess) {
-                    buttonText.textContent = '✅';
-                    button.classList.add('copied');
-                } else {
-                    buttonText.textContent = '❌';
-                }
-
+                buttonText.textContent = textOk;
+                button.classList.add('copied');
                 setTimeout(() => {
                     buttonText.textContent = originalText;
                     button.disabled = false;
                     button.classList.remove('copied');
-                }, 2500);
+                }, 1800);
             };
 
             const copyToClipboard = (content, button) => {
                 if (navigator.clipboard && window.isSecureContext) {
-                    navigator.clipboard.writeText(content).then(() => {
-                        showFeedback(button, true);
-                    }, () => {
-                        showFeedback(button, false);
-                    });
+                    navigator.clipboard.writeText(content).then(() => showFeedback(button), () => showFeedback(button, '失败', '失败'));
                 } else {
                     const textArea = document.createElement('textarea');
                     textArea.value = content;
@@ -350,32 +517,128 @@ SCRIPT_TEMPLATE_MINDMAP = """
                     textArea.select();
                     try {
                         document.execCommand('copy');
-                        showFeedback(button, true);
+                        showFeedback(button);
                     } catch (err) {
-                        showFeedback(button, false);
+                        showFeedback(button, '失败', '失败');
                     }
                     document.body.removeChild(textArea);
                 }
             };
 
-            if (downloadSvgBtn) {
-                downloadSvgBtn.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    const svgEl = containerEl.querySelector('svg');
-                    if (svgEl) {
-                        const svgData = new XMLSerializer().serializeToString(svgEl);
-                        copyToClipboard(svgData, downloadSvgBtn);
-                    }
-                });
-            }
+            const handleDownloadSVG = () => {
+                const svg = containerEl.querySelector('svg');
+                if (!svg) return;
+                const svgData = new XMLSerializer().serializeToString(svg);
+                copyToClipboard(svgData, downloadSvgBtn);
+            };
 
-            if (downloadMdBtn) {
-                downloadMdBtn.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    const markdownContent = document.getElementById('markdown-source-' + uniqueId).textContent;
-                    copyToClipboard(markdownContent, downloadMdBtn);
-                });
-            }
+            const handleDownloadMD = () => {
+                const markdownContent = document.getElementById('markdown-source-' + uniqueId)?.textContent || '';
+                if (!markdownContent) return;
+                copyToClipboard(markdownContent, downloadMdBtn);
+            };
+
+            const handleDownloadPNG = () => {
+                const svg = containerEl.querySelector('svg');
+                if (!svg) return;
+                const serializer = new XMLSerializer();
+                const svgData = serializer.serializeToString(svg);
+                const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                const url = URL.createObjectURL(svgBlob);
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const rect = svg.getBoundingClientRect();
+                    canvas.width = Math.max(rect.width, 1200);
+                    canvas.height = Math.max(rect.height, 800);
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = getComputedStyle(containerEl).getPropertyValue('--card-bg-color') || '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0);
+                    canvas.toBlob((blob) => {
+                        if (!blob) return;
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = 'mindmap.png';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(link.href);
+                        showFeedback(downloadPngBtn);
+                    }, 'image/png');
+                    URL.revokeObjectURL(url);
+                };
+                img.onerror = () => showFeedback(downloadPngBtn, '失败', '失败');
+                img.src = url;
+            };
+
+            let baseTransform = '';
+            let currentScale = 1;
+            const minScale = 0.6;
+            const maxScale = 2.4;
+            const step = 0.2;
+
+            const updateBaseTransform = () => {
+                const g = svgEl.querySelector('g');
+                if (g) {
+                    baseTransform = g.getAttribute('transform') || 'translate(0,0)';
+                }
+            };
+
+            const applyScale = () => {
+                const g = svgEl.querySelector('g');
+                if (!g) return;
+                const translatePart = (baseTransform.match(/translate\([^)]*\)/) || ['translate(0,0)'])[0];
+                g.setAttribute('transform', `${translatePart} scale(${currentScale})`);
+            };
+
+            const handleZoom = (direction) => {
+                if (direction === 'reset') {
+                    currentScale = 1;
+                    markmapInstance.fit();
+                    updateBaseTransform();
+                    applyScale();
+                    return;
+                }
+                currentScale = Math.min(maxScale, Math.max(minScale, currentScale + (direction === 'in' ? step : -step)));
+                applyScale();
+            };
+
+            const handleExpand = (level) => {
+                markmapInstance.setOptions({ initialExpandLevel: level });
+                markmapInstance.setData(root);
+                markmapInstance.fit();
+                currentScale = 1;
+                updateBaseTransform();
+                applyScale();
+            };
+
+            const handleFullscreen = () => {
+                const el = containerEl;
+                if (!document.fullscreenElement) {
+                    (el.requestFullscreen && el.requestFullscreen());
+                } else {
+                    document.exitFullscreen && document.exitFullscreen();
+                }
+            };
+
+            const handleThemeToggle = () => {
+                currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                setTheme(wrapper, currentTheme);
+            };
+
+            updateBaseTransform();
+
+            downloadSvgBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleDownloadSVG(); });
+            downloadMdBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleDownloadMD(); });
+            downloadPngBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleDownloadPNG(); });
+            zoomInBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleZoom('in'); });
+            zoomOutBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleZoom('out'); });
+            zoomResetBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleZoom('reset'); });
+            expandAllBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleExpand(Infinity); });
+            collapseAllBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleExpand(1); });
+            fullscreenBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleFullscreen(); });
+            themeToggleBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleThemeToggle(); });
         };
 
         if (document.readyState === 'loading') {
@@ -420,6 +683,21 @@ class Action:
             "Friday": "星期五",
             "Saturday": "星期六",
             "Sunday": "星期日",
+        }
+
+    def _get_user_context(self, __user__: Optional[Dict[str, Any]]) -> Dict[str, str]:
+        """Extract basic user context with safe fallbacks."""
+        if isinstance(__user__, (list, tuple)):
+            user_data = __user__[0] if __user__ else {}
+        elif isinstance(__user__, dict):
+            user_data = __user__
+        else:
+            user_data = {}
+
+        return {
+            "user_id": user_data.get("id", "unknown_user"),
+            "user_name": user_data.get("name", "用户"),
+            "user_language": user_data.get("language", "zh-CN"),
         }
 
     def _extract_markdown_syntax(self, llm_output: str) -> str:
@@ -516,33 +794,21 @@ class Action:
         __event_emitter__: Optional[Any] = None,
         __request__: Optional[Request] = None,
     ) -> Optional[dict]:
-        logger.info("Action: 智绘心图 (v12 - Final Feedback Fix) started")
-
-        if isinstance(__user__, (list, tuple)):
-            user_language = (
-                __user__[0].get("language", "zh-CN") if __user__ else "zh-CN"
-            )
-            user_name = __user__[0].get("name", "用户") if __user__[0] else "用户"
-            user_id = (
-                __user__[0]["id"]
-                if __user__ and "id" in __user__[0]
-                else "unknown_user"
-            )
-        elif isinstance(__user__, dict):
-            user_language = __user__.get("language", "zh-CN")
-            user_name = __user__.get("name", "用户")
-            user_id = __user__.get("id", "unknown_user")
+        logger.info("Action: 思维导图 (v12 - Final Feedback Fix) started")
+        user_ctx = self._get_user_context(__user__)
+        user_language = user_ctx["user_language"]
+        user_name = user_ctx["user_name"]
+        user_id = user_ctx["user_id"]
 
         try:
-            shanghai_tz = pytz.timezone("Asia/Shanghai")
-            current_datetime_shanghai = datetime.now(shanghai_tz)
-            current_date_time_str = current_datetime_shanghai.strftime(
-                "%Y年%m月%d日 %H:%M:%S"
-            )
-            current_weekday_en = current_datetime_shanghai.strftime("%A")
+            tz_env = os.environ.get("TZ")
+            tzinfo = ZoneInfo(tz_env) if tz_env else None
+            now_dt = datetime.now(tzinfo or timezone.utc)
+            current_date_time_str = now_dt.strftime("%Y年%m月%d日 %H:%M:%S")
+            current_weekday_en = now_dt.strftime("%A")
             current_weekday_zh = self.weekday_map.get(current_weekday_en, "未知星期")
-            current_year = current_datetime_shanghai.strftime("%Y")
-            current_timezone_str = "Asia/Shanghai"
+            current_year = now_dt.strftime("%Y")
+            current_timezone_str = tz_env or "UTC"
         except Exception as e:
             logger.warning(f"获取时区信息失败: {e}，使用默认值。")
             now = datetime.now()
@@ -552,7 +818,7 @@ class Action:
             current_timezone_str = "未知时区"
 
         await self._emit_notification(
-            __event_emitter__, "智绘心图已启动，正在为您生成思维导图...", "info"
+            __event_emitter__, "思维导图已启动，正在为您生成思维导图...", "info"
         )
 
         messages = body.get("messages")
@@ -612,7 +878,7 @@ class Action:
             }
 
         await self._emit_status(
-            __event_emitter__, "智绘心图: 深入分析文本结构...", False
+            __event_emitter__, "思维导图: 深入分析文本结构...", False
         )
 
         try:
@@ -708,23 +974,23 @@ class Action:
             html_embed_tag = f"```html\n{final_html}\n```"
             body["messages"][-1]["content"] = f"{long_text_content}\n\n{html_embed_tag}"
 
-            await self._emit_status(__event_emitter__, "智绘心图: 绘制完成！", True)
+            await self._emit_status(__event_emitter__, "思维导图: 绘制完成！", True)
             await self._emit_notification(
                 __event_emitter__, f"思维导图已生成，{user_name}！", "success"
             )
-            logger.info("Action: 智绘心图 (v12) completed successfully")
+            logger.info("Action: 思维导图 (v12) completed successfully")
 
         except Exception as e:
-            error_message = f"智绘心图处理失败: {str(e)}"
-            logger.error(f"智绘心图错误: {error_message}", exc_info=True)
-            user_facing_error = f"抱歉，智绘心图在处理时遇到错误: {str(e)}。\n请检查Open WebUI后端日志获取更多详情。"
+            error_message = f"思维导图处理失败: {str(e)}"
+            logger.error(f"思维导图错误: {error_message}", exc_info=True)
+            user_facing_error = f"抱歉，思维导图在处理时遇到错误: {str(e)}。\n请检查Open WebUI后端日志获取更多详情。"
             body["messages"][-1][
                 "content"
             ] = f"{long_text_content}\n\n❌ **错误:** {user_facing_error}"
 
-            await self._emit_status(__event_emitter__, "智绘心图: 处理失败。", True)
+            await self._emit_status(__event_emitter__, "思维导图: 处理失败。", True)
             await self._emit_notification(
-                __event_emitter__, f"智绘心图生成失败, {user_name}！", "error"
+                __event_emitter__, f"思维导图生成失败, {user_name}！", "error"
             )
 
         return body

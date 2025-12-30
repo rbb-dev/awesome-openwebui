@@ -10,12 +10,12 @@ Smart Mind Map is a powerful OpenWebUI action plugin that intelligently analyzes
 
 ## Core Features
 
--   ✅ **Intelligent Text Analysis**: Automatically identifies core themes, key concepts, and hierarchical structures
--   ✅ **Interactive Visualization**: Generates beautiful interactive mind maps based on Markmap.js
--   ✅ **Multi-language Support**: Automatically adjusts output based on user language
--   ✅ **Real-time Rendering**: Renders mind maps directly in the chat interface without navigation
--   ✅ **Export Capabilities**: Supports copying SVG code and Markdown source
--   ✅ **Customizable Configuration**: Configurable LLM model, minimum text length, and other parameters
+- ✅ **Intelligent Text Analysis**: Automatically identifies core themes, key concepts, and hierarchical structures
+- ✅ **Interactive Visualization**: Generates beautiful interactive mind maps based on Markmap.js
+- ✅ **Multi-language Support**: Automatically adjusts output based on user language
+- ✅ **Real-time Rendering**: Renders mind maps directly in the chat interface without navigation
+- ✅ **Export Capabilities**: Supports copying SVG code and Markdown source
+- ✅ **Customizable Configuration**: Configurable LLM model, minimum text length, and other parameters
 
 ---
 
@@ -43,13 +43,23 @@ Smart Mind Map is a powerful OpenWebUI action plugin that intelligently analyzes
 
 The plugin requires access to an LLM model for text analysis. Please ensure:
 
--   Your OpenWebUI instance has at least one available LLM model configured
--   Recommended to use fast, economical models (e.g., `gemini-2.5-flash`) for the best experience
--   Configure the `LLM_MODEL_ID` parameter in the plugin settings
+- Your OpenWebUI instance has at least one available LLM model configured
+- Recommended to use fast, economical models (e.g., `gemini-2.5-flash`) for the best experience
+- Configure the `LLM_MODEL_ID` parameter in the plugin settings
 
 ### 3. Plugin Activation
 
 Select the "Smart Mind Map" action plugin in chat settings to enable it.
+
+### 4. Theme Color Consistency (Optional)
+
+To keep the mind map visually consistent with the OpenWebUI theme colors, enable same-origin access for artifacts in OpenWebUI:
+
+- **Configuration Location**: In OpenWebUI User Settings: **Interface** → **Artifacts** → **iframe Sandbox Allow Same Origin**
+- **Enable Option**: Check the "Allow same-origin access for artifacts" / "iframe sandbox allow-same-origin" option
+- **Sandbox Attributes**: Ensure the iframe's sandbox attribute includes both `allow-same-origin` and `allow-scripts`
+
+Once enabled, the mind map will automatically detect and apply the current OpenWebUI theme (light/dark) without any manual configuration.
 
 ---
 
@@ -77,6 +87,7 @@ You can adjust the following parameters in the plugin's settings (Valves):
 ### Usage Example
 
 **Input Text:**
+
 ```
 Artificial Intelligence (AI) is a branch of computer science dedicated to creating systems capable of performing tasks that typically require human intelligence.
 Main application areas include:
@@ -102,20 +113,20 @@ Generated mind maps support two export methods:
 
 ### Frontend Rendering
 
--   **Markmap.js**: Open-source mind mapping rendering engine
--   **D3.js**: Data visualization foundation library
--   **Responsive Design**: Adapts to different screen sizes
+- **Markmap.js**: Open-source mind mapping rendering engine
+- **D3.js**: Data visualization foundation library
+- **Responsive Design**: Adapts to different screen sizes
 
 ### Backend Processing
 
--   **LLM Integration**: Calls configured models via `generate_chat_completion`
--   **Text Preprocessing**: Automatically filters HTML code blocks, extracts plain text content
--   **Format Conversion**: Converts LLM output to Markmap-compatible Markdown format
+- **LLM Integration**: Calls configured models via `generate_chat_completion`
+- **Text Preprocessing**: Automatically filters HTML code blocks, extracts plain text content
+- **Format Conversion**: Converts LLM output to Markmap-compatible Markdown format
 
 ### Security
 
--   **XSS Protection**: Automatically escapes `</script>` tags to prevent script injection
--   **Input Validation**: Checks text length to avoid invalid requests
+- **XSS Protection**: Automatically escapes `</script>` tags to prevent script injection
+- **Input Validation**: Checks text length to avoid invalid requests
 
 ---
 
@@ -124,72 +135,78 @@ Generated mind maps support two export methods:
 ### Issue: Plugin Won't Start
 
 **Solution:**
--   Check OpenWebUI logs for error messages
--   Confirm the plugin is correctly uploaded and enabled
--   Verify OpenWebUI version supports action plugins
+
+- Check OpenWebUI logs for error messages
+- Confirm the plugin is correctly uploaded and enabled
+- Verify OpenWebUI version supports action plugins
 
 ### Issue: Text Content Too Short
 
 **Symptom:** Prompt shows "Text content is too short for effective analysis"
 
 **Solution:**
--   Ensure input text contains at least 100 characters (default configuration)
--   Lower the `MIN_TEXT_LENGTH` parameter value in plugin settings
--   Provide more detailed, structured text content
+
+- Ensure input text contains at least 100 characters (default configuration)
+- Lower the `MIN_TEXT_LENGTH` parameter value in plugin settings
+- Provide more detailed, structured text content
 
 ### Issue: Mind Map Not Generated
 
 **Solution:**
--   Check if `LLM_MODEL_ID` is configured correctly
--   Confirm the configured model is available in OpenWebUI
--   Review backend logs for LLM call failures
--   Verify user has sufficient permissions to access the configured model
+
+- Check if `LLM_MODEL_ID` is configured correctly
+- Confirm the configured model is available in OpenWebUI
+- Review backend logs for LLM call failures
+- Verify user has sufficient permissions to access the configured model
 
 ### Issue: Mind Map Display Error
 
 **Symptom:** Shows "⚠️ Mind map rendering failed"
 
 **Solution:**
--   Check browser console for error messages
--   Confirm Markmap.js and D3.js libraries are loading correctly
--   Verify generated Markdown format conforms to Markmap specifications
--   Try refreshing the page to re-render
+
+- Check browser console for error messages
+- Confirm Markmap.js and D3.js libraries are loading correctly
+- Verify generated Markdown format conforms to Markmap specifications
+- Try refreshing the page to re-render
 
 ### Issue: Export Function Not Working
 
 **Solution:**
--   Confirm browser supports Clipboard API
--   Check if browser is blocking clipboard access permissions
--   Use modern browsers (Chrome, Firefox, Edge, etc.)
+
+- Confirm browser supports Clipboard API
+- Check if browser is blocking clipboard access permissions
+- Use modern browsers (Chrome, Firefox, Edge, etc.)
 
 ---
 
 ## Best Practices
 
 1. **Text Preparation**
-   -   Provide text content with clear structure and distinct hierarchies
-   -   Use paragraphs, lists, and other formatting to help LLM understand text structure
-   -   Avoid excessively lengthy or unstructured text
+   - Provide text content with clear structure and distinct hierarchies
+   - Use paragraphs, lists, and other formatting to help LLM understand text structure
+   - Avoid excessively lengthy or unstructured text
 
 2. **Model Selection**
-   -   For daily use, recommend fast models like `gemini-2.5-flash`
-   -   For complex text analysis, use more powerful models (e.g., GPT-4)
-   -   Balance speed and analysis quality based on needs
+   - For daily use, recommend fast models like `gemini-2.5-flash`
+   - For complex text analysis, use more powerful models (e.g., GPT-4)
+   - Balance speed and analysis quality based on needs
 
 3. **Performance Optimization**
-   -   Set `MIN_TEXT_LENGTH` appropriately to avoid processing text that's too short
-   -   For particularly long texts, consider summarizing before generating mind maps
-   -   Disable `show_status` in production environments to reduce interface updates
+   - Set `MIN_TEXT_LENGTH` appropriately to avoid processing text that's too short
+   - For particularly long texts, consider summarizing before generating mind maps
+   - Disable `show_status` in production environments to reduce interface updates
 
 ---
 
 ## Changelog
 
 ### v0.7.2 (Current Version)
--   Optimized text extraction logic, automatically filters HTML code blocks
--   Improved error handling and user feedback
--   Enhanced export functionality compatibility
--   Optimized UI styling and interactive experience
+
+- Optimized text extraction logic, automatically filters HTML code blocks
+- Improved error handling and user feedback
+- Enhanced export functionality compatibility
+- Optimized UI styling and interactive experience
 
 ---
 
@@ -205,6 +222,6 @@ Welcome to submit issue reports and improvement suggestions! Please visit the pr
 
 ## Related Resources
 
--   [Markmap Official Website](https://markmap.js.org/)
--   [OpenWebUI Documentation](https://docs.openwebui.com/)
--   [D3.js Official Website](https://d3js.org/)
+- [Markmap Official Website](https://markmap.js.org/)
+- [OpenWebUI Documentation](https://docs.openwebui.com/)
+- [D3.js Official Website](https://d3js.org/)

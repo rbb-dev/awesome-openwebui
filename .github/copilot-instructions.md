@@ -466,6 +466,165 @@ async def generate_title_using_ai(
 
 ---
 
+## 🎭 iframe 主题检测规范 (iframe Theme Detection)
+
+当插件在 iframe 中运行（特别是使用 `srcdoc` 属性）时，需要检测应用程序的主题以保持视觉一致性。
+
+### 检测优先级 (Priority Order)
+
+按以下顺序尝试检测主题，直到找到有效结果：
+
+1. **显式切换** (Explicit Toggle) - 用户手动点击主题按钮
+2. **父文档 Meta 标签** (Parent Meta Theme-Color) - 从 `window.parent.document` 的 `<meta name="theme-color">` 读取
+3. **父文档 Class/Data-Theme** (Parent HTML/Body Class) - 检查父文档 html/body 的 class 或 data-theme 属性
+4. **系统偏好** (System Preference) - `prefers-color-scheme: dark` 媒体查询
+
+### 核心实现代码 (Implementation)
+
+```javascript
+// 1. 颜色亮度解析（支持 hex 和 rgb）
+const parseColorLuma = (colorStr) => {
+    if (!colorStr) return null;
+    // hex #rrggbb or rrggbb
+    let m = colorStr.match(/^#?([0-9a-f]{6})$/i);
+    if (m) {
+        const hex = m[1];
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    }
+    // rgb(r, g, b) or rgba(r, g, b, a)
+    m = colorStr.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (m) {
+        const r = parseInt(m[1], 10);
+        const g = parseInt(m[2], 10);
+        const b = parseInt(m[3], 10);
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    }
+    return null;
+};
+
+// 2. 从 meta 标签提取主题
+const getThemeFromMeta = (doc, scope = 'self') => {
+    const metas = Array.from((doc || document).querySelectorAll('meta[name="theme-color"]'));
+    if (!metas.length) return null;
+    const color = metas[metas.length - 1].content.trim();
+    const luma = parseColorLuma(color);
+    if (luma === null) return null;
+    return luma < 0.5 ? 'dark' : 'light';
+};
+
+// 3. 安全地访问父文档
+const getParentDocumentSafe = () => {
+    try {
+        if (!window.parent || window.parent === window) return null;
+        const pDoc = window.parent.document;
+        void pDoc.title; // 触发跨域检查
+        return pDoc;
+    } catch (err) {
+        console.log(`Parent document not accessible: ${err.name}`);
+        return null;
+    }
+};
+
+// 4. 从父文档的 class/data-theme 检测主题
+const getThemeFromParentClass = () => {
+    try {
+        if (!window.parent || window.parent === window) return null;
+        const pDoc = window.parent.document;
+        const html = pDoc.documentElement;
+        const body = pDoc.body;
+        const htmlClass = html ? html.className : '';
+        const bodyClass = body ? body.className : '';
+        const htmlDataTheme = html ? html.getAttribute('data-theme') : '';
+        
+        if (htmlDataTheme === 'dark' || bodyClass.includes('dark') || htmlClass.includes('dark')) 
+            return 'dark';
+        if (htmlDataTheme === 'light' || bodyClass.includes('light') || htmlClass.includes('light')) 
+            return 'light';
+        return null;
+    } catch (err) {
+        return null;
+    }
+};
+
+// 5. 主题设置及检测
+const setTheme = (wrapperEl, explicitTheme) => {
+    const parentDoc = getParentDocumentSafe();
+    const metaThemeParent = parentDoc ? getThemeFromMeta(parentDoc, 'parent') : null;
+    const parentClassTheme = getThemeFromParentClass();
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    // 按优先级选择
+    const chosen = explicitTheme || metaThemeParent || parentClassTheme || (prefersDark ? 'dark' : 'light');
+    wrapperEl.classList.toggle('theme-dark', chosen === 'dark');
+    return chosen;
+};
+```
+
+### CSS 变量定义 (CSS Variables)
+
+使用 CSS 变量实现主题切换，避免硬编码颜色：
+
+```css
+:root {
+    --primary-color: #1e88e5;
+    --background-color: #f4f6f8;
+    --text-color: #263238;
+    --border-color: #e0e0e0;
+}
+
+.theme-dark {
+    --primary-color: #64b5f6;
+    --background-color: #111827;
+    --text-color: #e5e7eb;
+    --border-color: #374151;
+}
+
+.container {
+    background-color: var(--background-color);
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+```
+
+### 调试与日志 (Debugging)
+
+添加详细日志便于排查主题检测问题：
+
+```javascript
+console.log(`[plugin] [parent] meta theme-color count: ${metas.length}`);
+console.log(`[plugin] [parent] meta theme-color picked: "${color}"`);
+console.log(`[plugin] [parent] meta theme-color luma=${luma.toFixed(3)}, inferred=${inferred}`);
+console.log(`[plugin] parent html.class="${htmlClass}", data-theme="${htmlDataTheme}"`);
+console.log(`[plugin] final chosen theme: ${chosen}`);
+```
+
+### 最佳实践 (Best Practices)
+
+- 仅尝试访问**父文档**的主题信息，不依赖 srcdoc iframe 自身的 meta（通常为空）
+- 在跨域 iframe 中使用 class/data-theme 作为备选方案
+- 使用 try-catch 包裹所有父文档访问，避免跨域异常中断
+- 提供用户手动切换主题的按钮作为最高优先级
+- 记录详细日志便于用户反馈主题检测问题
+
+### OpenWebUI Configuration Requirement (OpenWebUI Configuration)
+
+For iframe plugins to access parent document theme information, users need to configure:
+
+1. **Enable Artifact Same-Origin Access** - In User Settings: **Interface** → **Artifacts** → Check **iframe Sandbox Allow Same Origin**
+2. **Configure Sandbox Attributes** - Ensure iframe's sandbox attribute includes both `allow-same-origin` and `allow-scripts`
+3. **Verify Meta Tag** - Ensure OpenWebUI page head contains `<meta name="theme-color" content="#color">` tag
+
+**Important Notes**:
+- Same-origin access allows iframe to read theme information via `window.parent.document`
+- Cross-origin iframes cannot access parent document and should implement class/data-theme detection as fallback
+- Using same-origin access in srcdoc iframe is safe (origin is null, doesn't bypass CORS policy)
+- Users can provide manual theme toggle button in plugin as highest priority option
+
+---
+
 ## ✅ 开发检查清单 (Development Checklist)
 
 开发新插件时，请确保完成以下检查：
