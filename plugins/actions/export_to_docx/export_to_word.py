@@ -469,6 +469,7 @@ class Action:
         for run in heading.runs:
             run.font.name = "Times New Roman"
             run._element.rPr.rFonts.set(qn("w:eastAsia"), "SimHei")
+            run.font.color.rgb = RGBColor(0, 0, 0)
 
     def add_paragraph(self, doc: Document, text: str):
         """Add paragraph with inline formatting support"""
@@ -583,25 +584,25 @@ class Action:
         """Add code block with syntax highlighting"""
         # Token color mapping (based on common IDE themes)
         TOKEN_COLORS = {
-            Token.Keyword: RGBColor(0, 0, 255),  # Blue - keywords
-            Token.Keyword.Constant: RGBColor(0, 0, 255),
-            Token.Keyword.Declaration: RGBColor(0, 0, 255),
-            Token.Keyword.Namespace: RGBColor(0, 0, 255),
-            Token.Keyword.Type: RGBColor(0, 0, 255),
-            Token.Name.Function: RGBColor(136, 18, 128),  # Purple - function names
-            Token.Name.Class: RGBColor(38, 127, 153),  # Cyan - class names
-            Token.Name.Decorator: RGBColor(255, 128, 0),  # Orange - decorators
-            Token.Name.Builtin: RGBColor(0, 112, 32),  # Green - builtins
-            Token.String: RGBColor(163, 21, 21),  # Red - strings
-            Token.String.Doc: RGBColor(128, 128, 128),  # Gray - docstrings
-            Token.Comment: RGBColor(128, 128, 128),  # Gray - comments
-            Token.Comment.Single: RGBColor(128, 128, 128),
-            Token.Comment.Multiline: RGBColor(128, 128, 128),
-            Token.Number: RGBColor(9, 134, 88),  # Green - numbers
-            Token.Number.Integer: RGBColor(9, 134, 88),
-            Token.Number.Float: RGBColor(9, 134, 88),
-            Token.Operator: RGBColor(104, 118, 135),  # Gray-blue - operators
-            Token.Punctuation: RGBColor(64, 64, 64),  # Dark gray - punctuation
+            Token.Keyword: RGBColor(0, 92, 197),  # macOS blue - keywords
+            Token.Keyword.Constant: RGBColor(0, 92, 197),
+            Token.Keyword.Declaration: RGBColor(0, 92, 197),
+            Token.Keyword.Namespace: RGBColor(0, 92, 197),
+            Token.Keyword.Type: RGBColor(0, 92, 197),
+            Token.Name.Function: RGBColor(0, 0, 0),  # Functions stay black
+            Token.Name.Class: RGBColor(38, 82, 120),  # Deep cyan-blue - classes
+            Token.Name.Decorator: RGBColor(170, 51, 0),  # Warm orange - decorators
+            Token.Name.Builtin: RGBColor(0, 110, 71),  # Deep green - builtins
+            Token.String: RGBColor(196, 26, 22),  # Red - strings
+            Token.String.Doc: RGBColor(109, 120, 133),  # Gray - docstrings
+            Token.Comment: RGBColor(109, 120, 133),  # Gray - comments
+            Token.Comment.Single: RGBColor(109, 120, 133),
+            Token.Comment.Multiline: RGBColor(109, 120, 133),
+            Token.Number: RGBColor(28, 0, 207),  # Indigo - numbers
+            Token.Number.Integer: RGBColor(28, 0, 207),
+            Token.Number.Float: RGBColor(28, 0, 207),
+            Token.Operator: RGBColor(90, 99, 120),  # Gray-blue - operators
+            Token.Punctuation: RGBColor(0, 0, 0),  # Black - punctuation
         }
 
         def get_token_color(token_type):
@@ -632,7 +633,7 @@ class Action:
 
         # Add light gray background
         shading = OxmlElement("w:shd")
-        shading.set(qn("w:fill"), "F5F5F5")
+        shading.set(qn("w:fill"), "F7F7F7")
         paragraph._element.pPr.append(shading)
 
         # Try to use Pygments for syntax highlighting

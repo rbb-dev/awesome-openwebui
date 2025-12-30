@@ -464,6 +464,7 @@ class Action:
         for run in heading.runs:
             run.font.name = "Times New Roman"
             run._element.rPr.rFonts.set(qn("w:eastAsia"), "黑体")
+            run.font.color.rgb = RGBColor(0, 0, 0)
 
     def add_paragraph(self, doc: Document, text: str):
         """添加段落，支持内联格式"""
@@ -582,25 +583,25 @@ class Action:
         """添加代码块，支持语法高亮"""
         # 语法高亮颜色映射 (基于常见的 IDE 配色)
         TOKEN_COLORS = {
-            Token.Keyword: RGBColor(0, 0, 255),  # 蓝色 - 关键字
-            Token.Keyword.Constant: RGBColor(0, 0, 255),
-            Token.Keyword.Declaration: RGBColor(0, 0, 255),
-            Token.Keyword.Namespace: RGBColor(0, 0, 255),
-            Token.Keyword.Type: RGBColor(0, 0, 255),
-            Token.Name.Function: RGBColor(136, 18, 128),  # 紫色 - 函数名
-            Token.Name.Class: RGBColor(38, 127, 153),  # 青色 - 类名
-            Token.Name.Decorator: RGBColor(255, 128, 0),  # 橙色 - 装饰器
-            Token.Name.Builtin: RGBColor(0, 112, 32),  # 绿色 - 内置函数
-            Token.String: RGBColor(163, 21, 21),  # 红色 - 字符串
-            Token.String.Doc: RGBColor(128, 128, 128),  # 灰色 - 文档字符串
-            Token.Comment: RGBColor(128, 128, 128),  # 灰色 - 注释
-            Token.Comment.Single: RGBColor(128, 128, 128),
-            Token.Comment.Multiline: RGBColor(128, 128, 128),
-            Token.Number: RGBColor(9, 134, 88),  # 绿色 - 数字
-            Token.Number.Integer: RGBColor(9, 134, 88),
-            Token.Number.Float: RGBColor(9, 134, 88),
-            Token.Operator: RGBColor(104, 118, 135),  # 灰蓝色 - 运算符
-            Token.Punctuation: RGBColor(64, 64, 64),  # 深灰 - 标点
+            Token.Keyword: RGBColor(0, 92, 197),  # macOS 风格蓝 - 关键字
+            Token.Keyword.Constant: RGBColor(0, 92, 197),
+            Token.Keyword.Declaration: RGBColor(0, 92, 197),
+            Token.Keyword.Namespace: RGBColor(0, 92, 197),
+            Token.Keyword.Type: RGBColor(0, 92, 197),
+            Token.Name.Function: RGBColor(0, 0, 0),  # 函数名保持黑色
+            Token.Name.Class: RGBColor(38, 82, 120),  # 深青蓝 - 类名
+            Token.Name.Decorator: RGBColor(170, 51, 0),  # 暖橙 - 装饰器
+            Token.Name.Builtin: RGBColor(0, 110, 71),  # 墨绿 - 内置
+            Token.String: RGBColor(196, 26, 22),  # 红色 - 字符串
+            Token.String.Doc: RGBColor(109, 120, 133),  # 灰 - 文档字符串
+            Token.Comment: RGBColor(109, 120, 133),  # 灰 - 注释
+            Token.Comment.Single: RGBColor(109, 120, 133),
+            Token.Comment.Multiline: RGBColor(109, 120, 133),
+            Token.Number: RGBColor(28, 0, 207),  # 靛蓝 - 数字
+            Token.Number.Integer: RGBColor(28, 0, 207),
+            Token.Number.Float: RGBColor(28, 0, 207),
+            Token.Operator: RGBColor(90, 99, 120),  # 灰蓝 - 运算符
+            Token.Punctuation: RGBColor(0, 0, 0),  # 黑色 - 标点
         }
 
         def get_token_color(token_type):
@@ -631,7 +632,7 @@ class Action:
 
         # 添加浅灰色背景
         shading = OxmlElement("w:shd")
-        shading.set(qn("w:fill"), "F5F5F5")
+        shading.set(qn("w:fill"), "F7F7F7")
         paragraph._element.pPr.append(shading)
 
         # 尝试使用 Pygments 进行语法高亮
