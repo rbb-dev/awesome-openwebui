@@ -5,7 +5,7 @@ author: Fu-Jie
 author_url: https://github.com/Fu-Jie
 funding_url: https://github.com/Fu-Jie/awesome-openwebui
 description: 通过智能摘要和消息压缩，降低长对话的 token 消耗，同时保持对话连贯性。
-version: 1.0.0
+version: 1.1.0
 license: MIT
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -49,14 +49,12 @@ license: MIT
 💾 存储方案
 ═══════════════════════════════════════════════════════════════════════════════
 
-本过滤器使用数据库进行持久化存储，通过 `DATABASE_URL` 环境变量进行配置，支持 PostgreSQL 和 SQLite。
+本过滤器使用 Open WebUI 的共享数据库连接进行持久化存储。
+它自动复用 Open WebUI 内部的 SQLAlchemy 引擎和 SessionLocal，
+使插件与数据库类型无关，并确保与 Open WebUI 支持的任何数据库后端
+（PostgreSQL、SQLite 等）兼容。
 
-配置方式：
-  - 必须设置 `DATABASE_URL` 环境变量。
-  - PostgreSQL 示例: `postgresql://user:password@host:5432/openwebui`
-  - SQLite 示例: `sqlite:///path/to/your/database.db`
-
-过滤器会根据 `DATABASE_URL` 的前缀（`postgres` 或 `sqlite`）自动选择合适的数据库驱动。
+无需额外的数据库配置 - 插件自动继承 Open WebUI 的数据库设置。
 
   表结构：
     - id: 主键（自增）
@@ -142,21 +140,8 @@ debug_mode (调试模式)
 🔧 部署配置
 ═══════════════════════════════════════════════════════
 
-Docker Compose 示例：
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  services:
-    openwebui:
-      environment:
-        DATABASE_URL: postgresql://user:password@postgres:5432/openwebui
-      depends_on:
-        - postgres
-
-    postgres:
-      image: postgres:15-alpine
-      environment:
-        POSTGRES_USER: user
-        POSTGRES_PASSWORD: password
-        POSTGRES_DB: openwebui
+插件自动使用 Open WebUI 的共享数据库连接。
+无需额外的数据库配置。
 
 过滤器安装顺序建议：
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -201,9 +186,10 @@ Docker Compose 示例：
 ⚠️ 注意事项
 ═══════════════════════════════════════════════════════════════════════════════
 
-1. 数据库权限
-   ⚠ 确保 `DATABASE_URL` 指向的用户有创建表的权限。
-   ⚠ 首次运行会自动创建 `chat_summary` 表。
+1. 数据库连接
+   ✓ 插件自动使用 Open WebUI 的共享数据库连接。
+   ✓ 无需额外配置。
+   ✓ 首次运行会自动创建 `chat_summary` 表。
 
 2. 保留策略
    ⚠ `keep_first` 配置对于保留包含提示或环境变量的初始消息非常重要。请根据需要进行配置。
@@ -226,13 +212,11 @@ Docker Compose 示例：
 🐛 故障排除
 ═══════════════════════════════════════════════════════════════════════════════
 
-问题：数据库连接失败
+问题：数据库表未创建
 解决：
-  1. 确认 `DATABASE_URL` 环境变量已正确设置。
-  2. 确认 `DATABASE_URL` 以 `sqlite` 或 `postgres` 开头。
-  3. 确认数据库服务正在运行，并且网络连接正常。
-  4. 验证连接 URL 中的用户名、密码、主机和端口是否正确。
-  5. 查看 Open WebUI 的容器日志以获取详细的错误信息。
+  1. 确保 Open WebUI 已正确配置数据库。
+  2. 查看 Open WebUI 的容器日志以获取详细的错误信息。
+  3. 验证 Open WebUI 的数据库连接是否正常工作。
 
 问题：摘要未生成
 解决：
@@ -258,7 +242,6 @@ from typing import Optional, Dict, Any, List, Union, Callable, Awaitable
 import asyncio
 import json
 import hashlib
-import os
 import time
 
 # Open WebUI 内置导入
@@ -267,6 +250,11 @@ from open_webui.models.users import Users
 from fastapi.requests import Request
 from open_webui.main import app as webui_app
 
+# Open WebUI 内部数据库 (复用共享连接)
+from open_webui.internal.db import engine as owui_engine
+from open_webui.internal.db import Session as owui_Session
+from open_webui.internal.db import Base as owui_Base
+
 # 尝试导入 tiktoken
 try:
     import tiktoken
@@ -274,18 +262,15 @@ except ImportError:
     tiktoken = None
 
 # 数据库导入
-from sqlalchemy import create_engine, Column, String, Text, DateTime, Integer
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import Column, String, Text, DateTime, Integer, inspect
 from datetime import datetime
 
-Base = declarative_base()
 
-
-class ChatSummary(Base):
+class ChatSummary(owui_Base):
     """对话摘要存储表"""
 
     __tablename__ = "chat_summary"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     chat_id = Column(String(255), unique=True, nullable=False, index=True)
@@ -298,68 +283,29 @@ class ChatSummary(Base):
 class Filter:
     def __init__(self):
         self.valves = self.Valves()
-        self._db_engine = None
-        self._SessionLocal = None
+        self._db_engine = owui_engine
+        self._SessionLocal = owui_Session
         self.temp_state = {}  # 用于在 inlet 和 outlet 之间传递临时数据
         self._init_database()
 
     def _init_database(self):
-        """初始化数据库连接和表"""
+        """使用 Open WebUI 的共享连接初始化数据库表"""
         try:
-            database_url = os.getenv("DATABASE_URL")
-
-            if not database_url:
-                print("[数据库] ❌ 错误: DATABASE_URL 环境变量未设置。请设置该变量。")
-                self._db_engine = None
-                self._SessionLocal = None
-                return
-
-            db_type = None
-            engine_args = {}
-
-            if database_url.startswith("sqlite"):
-                db_type = "SQLite"
-                engine_args = {
-                    "connect_args": {"check_same_thread": False},
-                    "echo": False,
-                }
-            elif database_url.startswith("postgres"):
-                db_type = "PostgreSQL"
-                if database_url.startswith("postgres://"):
-                    database_url = database_url.replace(
-                        "postgres://", "postgresql://", 1
-                    )
-                    print("[数据库] ℹ️ 已自动将 postgres:// 转换为 postgresql://")
-                engine_args = {
-                    "pool_pre_ping": True,
-                    "pool_recycle": 3600,
-                    "echo": False,
-                }
+            # 使用 SQLAlchemy inspect 检查表是否存在
+            inspector = inspect(self._db_engine)
+            if not inspector.has_table("chat_summary"):
+                # 如果表不存在则创建
+                ChatSummary.__table__.create(bind=self._db_engine, checkfirst=True)
+                print(
+                    "[数据库] ✅ 使用 Open WebUI 的共享数据库连接成功创建 chat_summary 表。"
+                )
             else:
                 print(
-                    f"[数据库] ❌ 错误: 不支持的数据库类型。DATABASE_URL 必须以 'sqlite' 或 'postgres' 开头。当前值: {database_url}"
+                    "[数据库] ✅ 使用 Open WebUI 的共享数据库连接。chat_summary 表已存在。"
                 )
-                self._db_engine = None
-                self._SessionLocal = None
-                return
-
-            # 创建数据库引擎
-            self._db_engine = create_engine(database_url, **engine_args)
-
-            # 创建会话工厂
-            self._SessionLocal = sessionmaker(
-                autocommit=False, autoflush=False, bind=self._db_engine
-            )
-
-            # 创建表（如果不存在）
-            Base.metadata.create_all(bind=self._db_engine)
-
-            print(f"[数据库] ✅ 成功连接到 {db_type} 并初始化 chat_summary 表")
 
         except Exception as e:
             print(f"[数据库] ❌ 初始化失败: {str(e)}")
-            self._db_engine = None
-            self._SessionLocal = None
 
     class Valves(BaseModel):
         priority: int = Field(
@@ -401,14 +347,8 @@ class Filter:
 
     def _save_summary(self, chat_id: str, summary: str, compressed_count: int):
         """保存摘要到数据库"""
-        if not self._SessionLocal:
-            if self.valves.debug_mode:
-                print("[存储] 数据库未初始化，跳过保存摘要")
-            return
-
         try:
-            session = self._SessionLocal()
-            try:
+            with self._SessionLocal() as session:
                 # 查找现有记录
                 existing = session.query(ChatSummary).filter_by(chat_id=chat_id).first()
 
@@ -440,27 +380,18 @@ class Filter:
                     action = "更新" if existing else "创建"
                     print(f"[存储] 摘要已{action}到数据库 (Chat ID: {chat_id})")
 
-            finally:
-                session.close()
-
         except Exception as e:
             print(f"[存储] ❌ 数据库保存失败: {str(e)}")
 
     def _load_summary_record(self, chat_id: str) -> Optional[ChatSummary]:
         """从数据库加载摘要记录对象"""
-        if not self._SessionLocal:
-            return None
-
         try:
-            session = self._SessionLocal()
-            try:
+            with self._SessionLocal() as session:
                 record = session.query(ChatSummary).filter_by(chat_id=chat_id).first()
                 if record:
                     # Detach the object from the session so it can be used after session close
                     session.expunge(record)
                     return record
-            finally:
-                session.close()
         except Exception as e:
             print(f"[加载] ❌ 数据库读取失败: {str(e)}")
         return None
@@ -815,7 +746,7 @@ class Filter:
 
             # 计算当前总 Token (使用摘要模型进行计数)
             total_tokens = await asyncio.to_thread(
-                self._calculate_messages_tokens, messages, summary_model_id
+                self._calculate_messages_tokens, messages
             )
 
             if total_tokens > max_context_tokens:
