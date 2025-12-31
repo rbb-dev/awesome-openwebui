@@ -1,0 +1,167 @@
+# GitHub Actions Workflow for Plugin Release
+# 插件发布工作流
+#
+# This workflow automates the release process for OpenWebUI plugins.
+# 此工作流自动化 OpenWebUI 插件的发布流程。
+#
+# Triggers:
+# - Manual trigger (workflow_dispatch) with custom release notes
+# - Push of version tags (v*)
+#
+# What it does:
+# 1. Scans all plugins for version information
+# 2. Generates release notes with plugin versions
+# 3. Creates a GitHub Release with the changelog
+
+name: Plugin Release / 插件发布
+
+on:
+  # Manual trigger with inputs
+  # 手动触发并提供输入
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+      release_title:
+        description: 'Release title (optional)'
+        required: false
+        type: string
+      release_notes:
+        description: 'Additional release notes (Markdown)'
+        required: false
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+  # Trigger on version tags
+  # 版本标签触发
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Extract plugin versions
+        id: plugins
+        run: |
+          # Run the version extraction script
+          python scripts/extract_plugin_versions.py --json --output plugin_versions.json
+          python scripts/extract_plugin_versions.py --markdown --output plugin_table.md
+          
+          # Output for debugging
+          echo "=== Plugin Versions (JSON) ==="
+          cat plugin_versions.json
+          echo ""
+          echo "=== Plugin Versions (Markdown) ==="
+          cat plugin_table.md
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TITLE="${{ github.event.inputs.release_title }}"
+          NOTES="${{ github.event.inputs.release_notes }}"
+          
+          # Generate release notes header with version
+          echo "# ${VERSION} Release / 发布" > release_notes.md
+          echo "" >> release_notes.md
+          
+          # Add custom title if provided
+          if [ -n "$TITLE" ]; then
+            echo "## $TITLE" >> release_notes.md
+            echo "" >> release_notes.md
+          fi
+          
+          # Add custom notes if provided
+          if [ -n "$NOTES" ]; then
+            echo "## Release Notes / 发布说明" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "$NOTES" >> release_notes.md
+            echo "" >> release_notes.md
+          fi
+          
+          # Add plugin versions table
+          echo "## Plugin Versions / 插件版本" >> release_notes.md
+          echo "" >> release_notes.md
+          cat plugin_table.md >> release_notes.md
+          echo "" >> release_notes.md
+          
+          # Add installation instructions
+          cat >> release_notes.md << 'INSTALL_INSTRUCTIONS'
+          
+          ## Installation / 安装
+          
+          ### From OpenWebUI Community
+          1. Open OpenWebUI Admin Panel
+          2. Navigate to Functions/Tools
+          3. Search for the plugin name
+          4. Click Install
+          
+          ### Manual Installation / 手动安装
+          1. Download the plugin file (`.py`)
+          2. Open OpenWebUI Admin Panel → Functions
+          3. Click "Create Function" → Import
+          4. Paste the plugin code
+          
+          ---
+          
+          📚 [Documentation / 文档](https://fu-jie.github.io/awesome-openwebui/)
+          🐛 [Report Issues / 报告问题](https://github.com/Fu-Jie/awesome-openwebui/issues)
+          
+          INSTALL_INSTRUCTIONS
+          
+          echo "=== Release Notes ==="
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ github.event.inputs.release_title || steps.version.outputs.version }}
+          body_path: release_notes.md
+          prerelease: ${{ github.event.inputs.prerelease || false }}
+          files: |
+            plugin_versions.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## 🚀 Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Plugin Versions" >> $GITHUB_STEP_SUMMARY
+          cat plugin_table.md >> $GITHUB_STEP_SUMMARY

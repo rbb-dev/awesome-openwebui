@@ -48,4 +48,40 @@
 4. 推送到分支 (`git push origin feature/AmazingFeature`)。
 5. 开启一个 Pull Request。
 
+## 📦 版本更新与发布
+
+当你更新插件时，请遵循以下流程：
+
+### 1. 更新版本号
+
+在插件文件的 docstring 中更新版本号（遵循[语义化版本](https://semver.org/lang/zh-CN/)）：
+
+```python
+"""
+title: 我的插件
+version: 0.2.0  # 更新此处
+...
+"""
+```
+
+### 2. 更新更新日志
+
+在 `CHANGELOG.md` 的 `[Unreleased]` 部分添加你的更改：
+
+```markdown
+### Added / 新增
+- 新功能描述
+
+### Fixed / 修复
+- Bug 修复描述
+```
+
+### 3. 发布流程
+
+维护者会通过以下方式发布新版本：
+- 手动触发 GitHub Actions 中的 "Plugin Release" 工作流
+- 或创建版本标签 (`v*`)
+
+详细说明请参阅 [发布工作流文档](docs/release-workflow.zh.md)。
+
 再次感谢你的贡献！🚀
