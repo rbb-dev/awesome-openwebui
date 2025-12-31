@@ -746,7 +746,7 @@ class Filter:
 
             # 计算当前总 Token (使用摘要模型进行计数)
             total_tokens = await asyncio.to_thread(
-                self._calculate_messages_tokens, messages, summary_model_id
+                self._calculate_messages_tokens, messages
             )
 
             if total_tokens > max_context_tokens:
