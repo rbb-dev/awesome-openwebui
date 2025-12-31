@@ -271,6 +271,7 @@ class ChatSummary(owui_Base):
     """Chat Summary Storage Table"""
 
     __tablename__ = "chat_summary"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     chat_id = Column(String(255), unique=True, nullable=False, index=True)

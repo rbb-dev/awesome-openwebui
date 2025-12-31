@@ -383,6 +383,7 @@ class PluginTable(owui_Base):
     """Plugin storage table - inherits from OpenWebUI's Base"""
 
     __tablename__ = "plugin_table_name"
+    __table_args__ = {"extend_existing": True}  # Required to avoid conflicts on plugin reload
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     unique_id = Column(String(255), unique=True, nullable=False, index=True)
