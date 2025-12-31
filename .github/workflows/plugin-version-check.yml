@@ -1,0 +1,214 @@
+# GitHub Actions Workflow for Plugin Version Change Detection
+# 插件版本变化检测工作流
+#
+# This workflow detects version changes in plugins when PRs are created or updated.
+# 此工作流在创建或更新 PR 时检测插件的版本变化。
+#
+# What it does:
+# 1. Compares plugin versions between base and head branches
+# 2. Generates a summary of version changes
+# 3. Comments on the PR with the changes
+# 4. FAILS the check if plugin files are modified but no version update is detected
+#    (enforces version bump requirement for plugin changes)
+
+name: Plugin Version Check / 插件版本检查
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'plugins/**/*.py'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Extract and compare versions
+        id: compare
+        run: |
+          # Extract base versions
+          cd base
+          if [ -f scripts/extract_plugin_versions.py ]; then
+            python scripts/extract_plugin_versions.py --json --output ../base_versions.json
+          else
+            # Fallback if script doesn't exist in base
+            echo "[]" > ../base_versions.json
+          fi
+          cd ..
+          
+          # Extract head versions
+          cd head
+          python scripts/extract_plugin_versions.py --json --output ../head_versions.json
+          
+          # Compare versions
+          python scripts/extract_plugin_versions.py --compare ../base_versions.json --output ../changes.md
+          cd ..
+          
+          echo "=== Version Changes ==="
+          cat changes.md
+          
+          # Check if there are any changes
+          if grep -q "No changes detected" changes.md; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+          
+          # Store changes for comment
+          {
+            echo 'changes<<EOF'
+            cat changes.md
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Check PR description for update notes
+        id: check_description
+        if: steps.compare.outputs.has_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prBody = context.payload.pull_request.body || '';
+            
+            // Check if PR has meaningful description (at least 20 characters, excluding whitespace)
+            // Use [\s\S]*? for multiline HTML comment matching (compatible across JS engines)
+            const cleanBody = prBody.replace(/\s+/g, '').replace(/<!--[\s\S]*?-->/g, '');
+            const hasDescription = cleanBody.length >= 20;
+            
+            console.log(`PR body length (cleaned): ${cleanBody.length}`);
+            console.log(`Has meaningful description: ${hasDescription}`);
+            
+            core.setOutput('has_description', hasDescription.toString());
+            return hasDescription;
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const hasChanges = '${{ steps.compare.outputs.has_changes }}' === 'true';
+            const hasDescription = '${{ steps.check_description.outputs.has_description }}' === 'true';
+            const changes = `${{ steps.compare.outputs.changes }}`;
+            
+            let statusIcon = '';
+            let statusMessage = '';
+            
+            if (hasChanges && hasDescription) {
+              statusIcon = '✅';
+              statusMessage = '版本更新检测通过！PR 包含版本变化和更新说明。\n\nVersion check passed! PR contains version changes and update description.';
+            } else if (hasChanges && !hasDescription) {
+              statusIcon = '⚠️';
+              statusMessage = '检测到版本更新，但 PR 描述过短。请在 PR 描述中添加更新说明（至少 20 个字符）。\n\nVersion update detected, but PR description is too short. Please add update notes in PR description (at least 20 characters).';
+            } else {
+              statusIcon = '❌';
+              statusMessage = '未检测到版本更新！修改插件文件时必须更新版本号。\n\nNo version update detected! You must update the version number when modifying plugin files.';
+            }
+            
+            const body = `## ${statusIcon} Plugin Version Check / 插件版本检查
+            
+            ${statusMessage}
+            
+            ---
+            
+            ${hasChanges ? `### 版本变化 / Version Changes\n\n${changes}` : ''}
+            
+            ---
+            *This comment was generated automatically. / 此评论由自动生成。*
+            `;
+            
+            // Find existing comment from github-actions bot
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              (comment.user.login === 'github-actions[bot]' || comment.user.type === 'Bot') && 
+              comment.body.includes('Plugin Version Check')
+            );
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+      - name: Enforce version update requirement
+        if: steps.compare.outputs.has_changes == 'false'
+        run: |
+          echo "::error::❌ 未检测到版本更新！修改插件文件时必须更新版本号。"
+          echo "::error::No version update detected! You must update the version number when modifying plugin files."
+          echo ""
+          echo "请在插件文件的 docstring 中更新版本号："
+          echo "Please update the version in your plugin's docstring:"
+          echo ""
+          echo '"""'
+          echo 'title: Your Plugin'
+          echo 'version: 0.2.0  # <- 更新此处 / Update this'
+          echo '...'
+          echo '"""'
+          exit 1
+
+      - name: Enforce PR description requirement
+        if: steps.compare.outputs.has_changes == 'true' && steps.check_description.outputs.has_description == 'false'
+        run: |
+          echo "::error::⚠️ PR 描述过短！请添加更新说明。"
+          echo "::error::PR description is too short! Please add update notes."
+          echo ""
+          echo "请在 PR 描述中添加以下内容："
+          echo "Please add the following to your PR description:"
+          echo ""
+          echo "- 更新了哪些功能 / What features were updated"
+          echo "- 修复了哪些问题 / What issues were fixed"
+          echo "- 其他重要变更 / Other important changes"
+          exit 1
+
+      - name: Summary
+        run: |
+          echo "## 🔍 Plugin Version Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.compare.outputs.has_changes }}" = "true" ]; then
+            echo "✅ **Version changes detected!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat changes.md >> $GITHUB_STEP_SUMMARY
+            
+            if [ "${{ steps.check_description.outputs.has_description }}" = "true" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "✅ **PR description check passed!**" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ **No version changes detected - check failed!**" >> $GITHUB_STEP_SUMMARY
+          fi

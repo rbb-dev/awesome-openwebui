@@ -1,0 +1,340 @@
+# GitHub Actions Workflow for Plugin Release
+# 插件发布工作流
+#
+# This workflow automates the release process for OpenWebUI plugins.
+# 此工作流自动化 OpenWebUI 插件的发布流程。
+#
+# Triggers:
+# - Push to main branch when plugins are modified (auto-release)
+# - Manual trigger (workflow_dispatch) with custom release notes
+# - Push of version tags (v*)
+#
+# What it does:
+# 1. Detects plugin version changes compared to the last release
+# 2. Generates release notes with updated plugin information
+# 3. Creates a GitHub Release with plugin files as downloadable assets
+# 4. Supports multiple plugin updates in a single release
+
+name: Plugin Release / 插件发布
+
+on:
+  # Auto-trigger on push to main when plugins are modified
+  push:
+    branches:
+      - main
+    paths:
+      - 'plugins/**/*.py'
+    tags:
+      - 'v*'
+
+  # Manual trigger with inputs
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0). Leave empty for auto-generated version.'
+        required: false
+        type: string
+      release_title:
+        description: 'Release title (optional)'
+        required: false
+        type: string
+      release_notes:
+        description: 'Additional release notes (Markdown)'
+        required: false
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+      changed_plugins: ${{ steps.detect.outputs.changed_plugins }}
+      release_notes: ${{ steps.detect.outputs.release_notes }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Detect plugin changes
+        id: detect
+        run: |
+          # Get the last release tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -z "$LAST_TAG" ]; then
+            echo "No previous release found, treating all plugins as new"
+            COMPARE_REF="$(git rev-list --max-parents=0 HEAD)"
+          else
+            echo "Comparing with last release: $LAST_TAG"
+            COMPARE_REF="$LAST_TAG"
+          fi
+          
+          # Get current plugin versions
+          python scripts/extract_plugin_versions.py --json --output current_versions.json
+          
+          # Get previous plugin versions by checking out old plugins
+          if git worktree add /tmp/old_repo ${COMPARE_REF} 2>/dev/null; then
+            if [ -d /tmp/old_repo/plugins ]; then
+              python scripts/extract_plugin_versions.py --plugins-dir /tmp/old_repo/plugins --json --output old_versions.json
+            else
+              echo "[]" > old_versions.json
+            fi
+            git worktree remove /tmp/old_repo 2>/dev/null || true
+          else
+            echo "Failed to create worktree, using empty version list"
+            echo "[]" > old_versions.json
+          fi
+          
+          # Compare versions and generate release notes
+          python scripts/extract_plugin_versions.py --compare old_versions.json --output changes.md
+          python scripts/extract_plugin_versions.py --compare old_versions.json --json --output changes.json
+          
+          echo "=== Version Changes ==="
+          cat changes.md
+          
+          # Check if there are any changes
+          if grep -q "No changes detected" changes.md; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "changed_plugins=" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            
+            # Extract changed plugin file paths using Python
+            python3 -c "
+          import json
+          with open('changes.json', 'r') as f:
+              data = json.load(f)
+          files = []
+          for plugin in data.get('added', []):
+              if 'file_path' in plugin:
+                  files.append(plugin['file_path'])
+          for update in data.get('updated', []):
+              if 'current' in update and 'file_path' in update['current']:
+                  files.append(update['current']['file_path'])
+          print('\n'.join(files))
+          " > changed_files.txt
+            
+            echo "changed_plugins<<EOF" >> $GITHUB_OUTPUT
+            cat changed_files.txt >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+          
+          # Store release notes
+          {
+            echo 'release_notes<<EOF'
+            cat changes.md
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+  release:
+    needs: check-changes
+    if: needs.check-changes.outputs.has_changes == 'true' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            # Auto-generate version based on date and run number
+            VERSION="v$(date +'%Y.%m.%d')-${{ github.run_number }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Extract plugin versions
+        id: plugins
+        run: |
+          python scripts/extract_plugin_versions.py --json --output plugin_versions.json
+          python scripts/extract_plugin_versions.py --markdown --output plugin_table.md
+          
+          echo "=== Plugin Versions ==="
+          cat plugin_table.md
+
+      - name: Collect plugin files for release
+        id: collect_files
+        run: |
+          mkdir -p release_plugins
+          
+          CHANGED_PLUGINS="${{ needs.check-changes.outputs.changed_plugins }}"
+          
+          if [ -n "$CHANGED_PLUGINS" ]; then
+            echo "Collecting changed plugin files..."
+            echo "$CHANGED_PLUGINS" | while read -r file; do
+              if [ -n "$file" ] && [ -f "$file" ]; then
+                dir=$(dirname "$file")
+                mkdir -p "release_plugins/$dir"
+                cp "$file" "release_plugins/$file"
+                echo "Added: $file"
+              fi
+            done
+          else
+            echo "Collecting all plugin files..."
+            find plugins -name "*.py" -type f ! -name "__*" | while read -r file; do
+              dir=$(dirname "$file")
+              mkdir -p "release_plugins/$dir"
+              cp "$file" "release_plugins/$file"
+            done
+          fi
+          
+          # Create a zip file with error handling
+          cd release_plugins
+          if [ -n "$(ls -A . 2>/dev/null)" ]; then
+            if zip -r ../plugins_release.zip .; then
+              echo "Successfully created plugins_release.zip"
+            else
+              echo "Warning: Failed to create zip file, creating empty placeholder"
+              touch ../plugins_release.zip
+            fi
+          else
+            echo "No plugin files to zip, creating empty placeholder"
+            touch ../plugins_release.zip
+          fi
+          cd ..
+          
+          echo "=== Collected Files ==="
+          find release_plugins -name "*.py" -type f | head -20
+
+      - name: Get commit messages
+        id: commits
+        if: github.event_name == 'push'
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s" --no-merges -- plugins/ | head -20)
+          else
+            COMMITS=$(git log --pretty=format:"- %s" --no-merges -10 -- plugins/)
+          fi
+          
+          {
+            echo 'commits<<EOF'
+            echo "$COMMITS"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TITLE="${{ github.event.inputs.release_title }}"
+          NOTES="${{ github.event.inputs.release_notes }}"
+          DETECTED_CHANGES="${{ needs.check-changes.outputs.release_notes }}"
+          COMMITS="${{ steps.commits.outputs.commits }}"
+          
+          echo "# ${VERSION} Release / 发布" > release_notes.md
+          echo "" >> release_notes.md
+          
+          if [ -n "$TITLE" ]; then
+            echo "## $TITLE" >> release_notes.md
+            echo "" >> release_notes.md
+          fi
+          
+          if [ -n "$DETECTED_CHANGES" ] && ! echo "$DETECTED_CHANGES" | grep -q "No changes detected"; then
+            echo "## What's Changed / 更新内容" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "$DETECTED_CHANGES" >> release_notes.md
+            echo "" >> release_notes.md
+          fi
+          
+          if [ -n "$COMMITS" ]; then
+            echo "## Commits / 提交记录" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "$COMMITS" >> release_notes.md
+            echo "" >> release_notes.md
+          fi
+          
+          if [ -n "$NOTES" ]; then
+            echo "## Additional Notes / 附加说明" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "$NOTES" >> release_notes.md
+            echo "" >> release_notes.md
+          fi
+          
+          echo "## All Plugin Versions / 所有插件版本" >> release_notes.md
+          echo "" >> release_notes.md
+          cat plugin_table.md >> release_notes.md
+          echo "" >> release_notes.md
+          
+          cat >> release_notes.md << 'EOF'
+          
+          ## Download / 下载
+          
+          📦 **plugins_release.zip** - 包含本次更新的所有插件文件 / Contains all updated plugin files
+          
+          ### Installation / 安装
+          
+          #### From OpenWebUI Community
+          1. Open OpenWebUI Admin Panel
+          2. Navigate to Functions/Tools
+          3. Search for the plugin name
+          4. Click Install
+          
+          #### Manual Installation / 手动安装
+          1. Download the plugin file (`.py`) from the assets below
+          2. Open OpenWebUI Admin Panel → Functions
+          3. Click "Create Function" → Import
+          4. Paste the plugin code
+          
+          ---
+          
+          📚 [Documentation / 文档](https://fu-jie.github.io/awesome-openwebui/)
+          🐛 [Report Issues / 报告问题](https://github.com/Fu-Jie/awesome-openwebui/issues)
+          EOF
+          
+          echo "=== Release Notes ==="
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ github.event.inputs.release_title || steps.version.outputs.version }}
+          body_path: release_notes.md
+          prerelease: ${{ github.event.inputs.prerelease || false }}
+          files: |
+            plugin_versions.json
+            plugins_release.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## 🚀 Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Updated Plugins" >> $GITHUB_STEP_SUMMARY
+          echo "${{ needs.check-changes.outputs.release_notes }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### All Plugin Versions" >> $GITHUB_STEP_SUMMARY
+          cat plugin_table.md >> $GITHUB_STEP_SUMMARY
