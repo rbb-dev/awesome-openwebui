@@ -17,6 +17,8 @@ import asyncio
 import logging
 import hashlib
 import ipaddress
+import struct
+import zlib
 from dataclasses import dataclass
 from typing import Optional, Callable, Awaitable, Any, List, Tuple, Dict, Literal, cast
 from urllib.parse import urlparse
@@ -29,7 +31,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.style import WD_STYLE_TYPE
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml import parse_xml
-from docx.oxml.ns import qn
+from docx.oxml.ns import qn, nsmap
 from docx.oxml import OxmlElement
 from open_webui.models.chats import Chats
 from open_webui.models.users import Users
@@ -63,8 +65,16 @@ logger = logging.getLogger(__name__)
 
 MermaidMode = Literal["off", "kroki"]
 MermaidRendererSecurityMode = Literal["permissive", "strict"]
+MermaidKrokiImageFormat = Literal["png", "svg", "svg+png"]
 
 _AUTO_URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>()]+")
+
+_TRANSPARENT_1PX_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWNgYGBgAAAABQABDQottAAAAABJRU5ErkJggg=="
+)
+
+_ASVG_NS = "http://schemas.microsoft.com/office/drawing/2016/SVG/main"
+nsmap.setdefault("asvg", _ASVG_NS)
 
 
 class _MermaidResponseTooLarge(Exception):
@@ -83,6 +93,7 @@ class _MermaidFenceBlock:
 class _MermaidOutcome:
     kind: Literal["image", "code"]
     png_bytes: Optional[bytes] = None
+    svg_bytes: Optional[bytes] = None
     error_classification: Optional[str] = None
     error_detail: Optional[str] = None
 
@@ -113,6 +124,14 @@ class Action:
         )
         MERMAID_KROKI_MAX_CONCURRENCY: int = Field(
             default=2, description="Max concurrent Kroki requests per export"
+        )
+        MERMAID_KROKI_IMAGE_FORMAT: MermaidKrokiImageFormat = Field(
+            default="svg+png",
+            description="Mermaid image format: png | svg | svg+png",
+        )
+        MERMAID_KROKI_BACKGROUND: str = Field(
+            default="#FFFFFF",
+            description="Mermaid background color for Kroki renders (empty disables)",
         )
 
         # Native Word charts were removed; Kroki PNG rendering is the supported path.
@@ -786,6 +805,18 @@ class Action:
         text = (source or "").replace("\r\n", "\n").replace("\r", "\n").strip()
         return text + "\n"
 
+    def _prepare_mermaid_for_kroki(self, source: str) -> str:
+        text = self._strip_mermaid_title_for_render(source)
+        bg = (self.valves.MERMAID_KROKI_BACKGROUND or "").strip()
+        if bg == "":
+            return text
+        escaped = bg.replace("\\", "\\\\").replace('"', '\\"')
+        init_line = f'%%{{init: {{"themeVariables": {{"background": "{escaped}"}}}}}}%%'
+        # Avoid duplicating if already present (idempotent).
+        if init_line in text:
+            return text
+        return init_line + "\n" + text
+
     def _mermaid_cache_key(self, source: str) -> str:
         normalized = self._normalize_mermaid_text(source)
         kroki_base = (self.valves.MERMAID_KROKI_BASE_URL or "").strip()
@@ -793,6 +824,7 @@ class Action:
             [
                 "v1",
                 f"mode={self.valves.MERMAID_MODE}",
+                f"format={self.valves.MERMAID_KROKI_IMAGE_FORMAT}",
                 f"kroki={kroki_base}",
                 f"timeout={self.valves.MERMAID_KROKI_TIMEOUT_S}",
                 f"max_req={self.valves.MERMAID_KROKI_MAX_REQUEST_BYTES}",
@@ -920,7 +952,7 @@ class Action:
 
                 async def _render_one(key: str, blk: _MermaidFenceBlock):
                     async with semaphore:
-                        outcome = await self._render_mermaid_to_png(
+                        outcome = await self._render_mermaid_for_export(
                             client, blk.source
                         )
                         cache[key] = outcome
@@ -949,7 +981,7 @@ class Action:
         budget_used: int,
         budget_exceeded: bool,
     ) -> Tuple[_MermaidOutcome, int, bool]:
-        if outcome.kind != "image" or not outcome.png_bytes:
+        if outcome.kind != "image":
             return outcome, budget_used, budget_exceeded
 
         if not budget_enabled:
@@ -966,8 +998,16 @@ class Action:
                 True,
             )
 
-        png_len = len(outcome.png_bytes)
-        if budget_used + png_len > budget_cap:
+        image_len = 0
+        if outcome.png_bytes:
+            image_len += len(outcome.png_bytes)
+        if outcome.svg_bytes:
+            image_len += len(outcome.svg_bytes)
+
+        if image_len == 0:
+            return outcome, budget_used, budget_exceeded
+
+        if budget_used + image_len > budget_cap:
             return (
                 _MermaidOutcome(
                     kind="code",
@@ -978,7 +1018,40 @@ class Action:
                 True,
             )
 
-        return outcome, budget_used + png_len, False
+        return outcome, budget_used + image_len, False
+
+    async def _render_mermaid_for_export(
+        self, client: httpx.AsyncClient, source: str
+    ) -> _MermaidOutcome:
+        fmt = self.valves.MERMAID_KROKI_IMAGE_FORMAT
+        if fmt == "png":
+            return await self._render_mermaid_to_png(client, source)
+        if fmt == "svg":
+            svg_out = await self._render_mermaid_to_svg(client, source)
+            if svg_out.kind != "image" or not svg_out.svg_bytes:
+                return svg_out
+            # In svg-only mode, embed a transparent PNG fallback with the same aspect ratio.
+            # Word uses the fallback PNG's intrinsic ratio to size the drawing; a 1x1 fallback
+            # makes wide charts look squashed.
+            fallback_png = self._transparent_png_for_svg(svg_out.svg_bytes)
+            return _MermaidOutcome(
+                kind="image",
+                png_bytes=fallback_png,
+                svg_bytes=svg_out.svg_bytes,
+            )
+
+        # svg+png
+        png_out = await self._render_mermaid_to_png(client, source)
+        if png_out.kind != "image" or not png_out.png_bytes:
+            return png_out
+        svg_out = await self._render_mermaid_to_svg(client, source)
+        if svg_out.kind == "image" and svg_out.svg_bytes:
+            return _MermaidOutcome(
+                kind="image",
+                png_bytes=png_out.png_bytes,
+                svg_bytes=svg_out.svg_bytes,
+            )
+        return png_out
 
     async def _validate_renderer_base_url(self) -> bool:
         base = (self.valves.MERMAID_KROKI_BASE_URL or "").strip()
@@ -1038,7 +1111,7 @@ class Action:
     async def _render_mermaid_to_png(
         self, client: httpx.AsyncClient, source: str
     ) -> _MermaidOutcome:
-        mermaid_text = self._strip_mermaid_title_for_render(source)
+        mermaid_text = self._prepare_mermaid_for_kroki(source)
         data = mermaid_text.encode("utf-8", errors="replace")
         if len(data) > self.valves.MERMAID_KROKI_MAX_REQUEST_BYTES:
             return _MermaidOutcome(
@@ -1110,6 +1183,321 @@ class Action:
             logger.exception(f"Mermaid renderer unexpected error: {exc}")
             return _MermaidOutcome(kind="code", error_classification="renderer_network_error")
 
+    def _looks_like_svg(self, data: bytes, content_type: str) -> bool:
+        if content_type and "svg" in content_type:
+            return True
+        head = data.lstrip()[:1024].lower()
+        return head.startswith(b"<svg") or b"<svg" in head
+
+    def _pad_svg_viewbox(self, svg_bytes: bytes) -> bytes:
+        """
+        Kroki/Mermaid SVGs can have tight viewBoxes that clip strokes/text near edges
+        in Word's SVG renderer. Expand the viewBox slightly to add padding.
+        """
+        try:
+            s = svg_bytes.decode("utf-8", errors="strict")
+        except Exception:
+            return svg_bytes
+
+        # First viewBox only (on the root <svg>).
+        m = re.search(
+            r'viewBox="([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"',
+            s,
+        )
+        if not m:
+            return svg_bytes
+
+        try:
+            min_x = float(m.group(1))
+            min_y = float(m.group(2))
+            width = float(m.group(3))
+            height = float(m.group(4))
+        except Exception:
+            return svg_bytes
+
+        if width <= 0 or height <= 0:
+            return svg_bytes
+
+        # Keep padding conservative; Word dark-mode “missing text” is often contrast, not clip.
+        min_dim = min(width, height)
+        pad = max(8.0, min_dim * 0.02)
+        pad = min(pad, 24.0)
+
+        new_vb = (
+            f'viewBox="{min_x - pad:g} {min_y - pad:g} '
+            f"{width + (2 * pad):g} {height + (2 * pad):g}\""
+        )
+        s2 = s[: m.start()] + new_vb + s[m.end() :]
+
+        return s2.encode("utf-8", errors="replace")
+
+    def _normalize_svg_for_word(self, svg_bytes: bytes) -> bytes:
+        """
+        Word's SVG renderer is sensitive to percentage sizing and certain CSS.
+        Normalize the root <svg> to an explicit width/height (from viewBox) and
+        remove max-width styling that can contribute to clipping/squashing.
+        """
+        try:
+            s = svg_bytes.decode("utf-8", errors="strict")
+        except Exception:
+            return svg_bytes
+
+        msvg = re.search(r"<svg\b[^>]*>", s, re.IGNORECASE)
+        if not msvg:
+            return svg_bytes
+
+        tag = msvg.group(0)
+
+        mvb = re.search(
+            r'viewBox="([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"',
+            tag,
+        )
+        vbw = vbh = None
+        if mvb:
+            try:
+                vbw = float(mvb.group(3))
+                vbh = float(mvb.group(4))
+            except Exception:
+                vbw = vbh = None
+
+        def _get_attr(attr: str) -> Optional[str]:
+            mm = re.search(rf'\b{attr}="([^"]*)"', tag, re.IGNORECASE)
+            return mm.group(1) if mm else None
+
+        width_attr = _get_attr("width")
+        height_attr = _get_attr("height")
+
+        needs_explicit = (
+            vbw
+            and vbh
+            and (
+                not width_attr
+                or not height_attr
+                or width_attr.strip().endswith("%")
+                or height_attr.strip().endswith("%")
+            )
+        )
+
+        tag2 = tag
+        if needs_explicit:
+            tag2 = re.sub(r'\bwidth="[^"]*"', "", tag2, flags=re.IGNORECASE)
+            tag2 = re.sub(r'\bheight="[^"]*"', "", tag2, flags=re.IGNORECASE)
+            tag2 = tag2[:-1] + f' width="{vbw:g}" height="{vbh:g}">'
+
+        # Remove inline style max-width which can confuse Word sizing.
+        tag2 = re.sub(r'\s+style="[^"]*"', "", tag2, flags=re.IGNORECASE)
+
+        if "preserveAspectRatio=" not in tag2:
+            tag2 = tag2[:-1] + ' preserveAspectRatio="xMidYMid meet">'
+
+        if "overflow=" not in tag2.lower():
+            tag2 = tag2[:-1] + ' overflow="visible">'
+
+        if tag2 == tag:
+            s2 = s
+        else:
+            s2 = s[: msvg.start()] + tag2 + s[msvg.end() :]
+
+        bg = (self.valves.MERMAID_KROKI_BACKGROUND or "").strip()
+        if bg:
+            # Insert a background rect as the first child to avoid transparent SVGs
+            # becoming unreadable in Word dark mode.
+            msvg2 = re.search(r"<svg\b[^>]*>", s2, re.IGNORECASE)
+            if msvg2 and "data-owui-bg" not in s2:
+                tag_now = msvg2.group(0)
+                vb = re.search(
+                    r'viewBox="([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+                    r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+                    r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+                    r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"',
+                    tag_now,
+                )
+                rect = None
+                if vb:
+                    rect = (
+                        f'<rect data-owui-bg="1" x="{vb.group(1)}" y="{vb.group(2)}" '
+                        f'width="{vb.group(3)}" height="{vb.group(4)}" fill="{bg}"/>' 
+                    )
+                else:
+                    rect = f'<rect data-owui-bg="1" x="0" y="0" width="100%" height="100%" fill="{bg}"/>'
+                insert_at = msvg2.end()
+                s2 = s2[:insert_at] + rect + s2[insert_at:]
+
+        return s2.encode("utf-8", errors="replace")
+
+        # unreachable
+
+    def _svg_aspect_ratio(self, svg_bytes: bytes) -> Optional[float]:
+        try:
+            s = svg_bytes.decode("utf-8", errors="strict")
+        except Exception:
+            return None
+
+        m = re.search(r"<svg\b[^>]*>", s, re.IGNORECASE)
+        if not m:
+            return None
+        tag = m.group(0)
+
+        def _num(attr: str) -> Optional[float]:
+            mm = re.search(rf'{attr}="([^"]+)"', tag, re.IGNORECASE)
+            if not mm:
+                return None
+            v = mm.group(1).strip()
+            # Ignore percentages; they don't define intrinsic ratio reliably.
+            if v.endswith("%"):
+                return None
+            # Extract leading number (px, pt, etc. are ignored for ratio).
+            mn = re.match(r"^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)", v)
+            if not mn:
+                return None
+            try:
+                return float(mn.group(1))
+            except Exception:
+                return None
+
+        w = _num("width")
+        h = _num("height")
+        if w and h and w > 0 and h > 0:
+            return w / h
+
+        mvb = re.search(
+            r'viewBox="([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"',
+            tag,
+        )
+        if not mvb:
+            return None
+        try:
+            vbw = float(mvb.group(3))
+            vbh = float(mvb.group(4))
+        except Exception:
+            return None
+        if vbw <= 0 or vbh <= 0:
+            return None
+        return vbw / vbh
+
+    def _make_transparent_png(self, width_px: int, height_px: int) -> bytes:
+        # Minimal RGBA PNG with transparent pixels.
+        w = max(1, int(width_px))
+        h = max(1, int(height_px))
+
+        def _chunk(typ: bytes, data: bytes) -> bytes:
+            return (
+                struct.pack(">I", len(data))
+                + typ
+                + data
+                + struct.pack(">I", zlib.crc32(typ + data) & 0xFFFFFFFF)
+            )
+
+        # Each scanline: filter byte 0 + RGBA bytes (all zero).
+        row = b"\x00" + (b"\x00" * (w * 4))
+        raw = row * h
+        compressed = zlib.compress(raw, level=9)
+
+        signature = b"\x89PNG\r\n\x1a\n"
+        ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)  # 8-bit RGBA
+        return signature + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", compressed) + _chunk(b"IEND", b"")
+
+    def _transparent_png_for_svg(self, svg_bytes: bytes) -> bytes:
+        ratio = self._svg_aspect_ratio(svg_bytes)
+        if not ratio or ratio <= 0:
+            return _TRANSPARENT_1PX_PNG
+
+        max_dim = 800
+        if ratio >= 1.0:
+            w = max_dim
+            h = max(1, int(round(max_dim / ratio)))
+        else:
+            h = max_dim
+            w = max(1, int(round(max_dim * ratio)))
+
+        return self._make_transparent_png(w, h)
+
+    async def _render_mermaid_to_svg(
+        self, client: httpx.AsyncClient, source: str
+    ) -> _MermaidOutcome:
+        mermaid_text = self._prepare_mermaid_for_kroki(source)
+        data = mermaid_text.encode("utf-8", errors="replace")
+        if len(data) > self.valves.MERMAID_KROKI_MAX_REQUEST_BYTES:
+            return _MermaidOutcome(
+                kind="code",
+                error_classification="renderer_request_too_large",
+                error_detail=f"{len(data)} bytes > {self.valves.MERMAID_KROKI_MAX_REQUEST_BYTES}",
+            )
+
+        base = (self.valves.MERMAID_KROKI_BASE_URL or "").strip().rstrip("/")
+        url = f"{base}/mermaid/svg"
+        timeout = httpx.Timeout(self.valves.MERMAID_KROKI_TIMEOUT_S)
+
+        try:
+            async with client.stream(
+                "POST",
+                url,
+                content=data,
+                headers={"Content-Type": "text/plain", "Accept": "image/svg+xml"},
+                timeout=timeout,
+            ) as resp:
+                status = resp.status_code
+                content_type = (resp.headers.get("content-type") or "").lower()
+
+                if status != 200:
+                    snippet = await self._read_text_snippet(resp, limit=300)
+                    classification = "renderer_http_error"
+                    if status in (400, 422):
+                        classification = "renderer_http_syntax_error"
+                    elif status == 429:
+                        classification = "renderer_http_rate_limited"
+                    elif 500 <= status <= 599:
+                        classification = "renderer_http_server_error"
+
+                    logger.warning(
+                        f"Mermaid renderer non-200: status={status} content-type={content_type!r} body={snippet!r}"
+                    )
+                    return _MermaidOutcome(
+                        kind="code",
+                        error_classification=classification,
+                        error_detail=str(status),
+                    )
+
+                svg = await self._read_limited_bytes(
+                    resp, limit=self.valves.MERMAID_KROKI_MAX_RESPONSE_BYTES
+                )
+                if not self._looks_like_svg(svg, content_type):
+                    snippet = svg[:300].decode("utf-8", errors="replace")
+                    logger.warning(
+                        f"Mermaid renderer returned unexpected payload: content-type={content_type!r} snippet={snippet!r}"
+                    )
+                    return _MermaidOutcome(
+                        kind="code",
+                        error_classification="renderer_unexpected_payload",
+                        error_detail=content_type or "unknown",
+                    )
+
+                svg = self._pad_svg_viewbox(svg)
+                svg = self._normalize_svg_for_word(svg)
+                return _MermaidOutcome(kind="image", svg_bytes=svg)
+
+        except httpx.TimeoutException:
+            return _MermaidOutcome(kind="code", error_classification="renderer_timeout")
+        except httpx.RequestError as exc:
+            logger.warning(f"Mermaid renderer network error: {exc}")
+            return _MermaidOutcome(kind="code", error_classification="renderer_network_error")
+        except _MermaidResponseTooLarge:
+            return _MermaidOutcome(
+                kind="code", error_classification="renderer_response_too_large"
+            )
+        except Exception as exc:
+            logger.exception(f"Mermaid renderer unexpected error: {exc}")
+            return _MermaidOutcome(kind="code", error_classification="renderer_network_error")
+
     async def _read_limited_bytes(
         self, resp: httpx.Response, limit: int
     ) -> bytes:
@@ -1150,7 +1538,9 @@ class Action:
 
         if outcome.kind == "image" and outcome.png_bytes:
             try:
-                self._insert_png_image(doc, outcome.png_bytes)
+                shape = self._insert_png_image(doc, outcome.png_bytes)
+                if outcome.svg_bytes:
+                    self._attach_svg_blip(doc, shape, outcome.svg_bytes)
                 self._add_mermaid_caption(doc, caption_title)
                 return
             except Exception as exc:
@@ -1320,7 +1710,42 @@ class Action:
 
     def _insert_png_image(self, doc: Document, png_bytes: bytes):
         width = self._available_block_width(doc)
-        doc.add_picture(cast(Any, io.BytesIO(png_bytes)), width=width)
+        return doc.add_picture(cast(Any, io.BytesIO(png_bytes)), width=width)
+
+    def _attach_svg_blip(self, doc: Document, inline_shape: Any, svg_bytes: bytes):
+        if not svg_bytes:
+            return
+
+        try:
+            pkg = doc.part.package
+            partname = pkg.next_partname("/word/media/image%d.svg")
+            from docx.opc.part import Part
+
+            svg_part = Part(partname, "image/svg+xml", svg_bytes)
+            rid_svg = doc.part.relate_to(svg_part, RT.IMAGE)
+
+            inline = inline_shape._inline
+            blips = inline.xpath(".//a:blip")
+            if not blips:
+                return
+            blip = blips[0]
+
+            existing = blip.xpath(".//asvg:svgBlip")
+            if existing:
+                existing[0].set(qn("r:embed"), rid_svg)
+                return
+
+            extLst = OxmlElement("a:extLst")
+            ext = OxmlElement("a:ext")
+            ext.set("uri", "{96DAC541-7B7A-43D3-8B79-37D633B846F1}")
+
+            svgBlip = OxmlElement("asvg:svgBlip")
+            svgBlip.set(qn("r:embed"), rid_svg)
+            ext.append(svgBlip)
+            extLst.append(ext)
+            blip.append(extLst)
+        except Exception as exc:
+            logger.warning(f"Failed to attach SVG blip; keeping PNG fallback: {exc}")
 
     # (Mermaid warning paragraphs removed)
 
