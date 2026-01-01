@@ -76,6 +76,15 @@ _TRANSPARENT_1PX_PNG = base64.b64decode(
 _ASVG_NS = "http://schemas.microsoft.com/office/drawing/2016/SVG/main"
 nsmap.setdefault("asvg", _ASVG_NS)
 
+_REASONING_DETAILS_RE = re.compile(
+    r"<details\b[^>]*\btype\s*=\s*(?:\"reasoning\"|'reasoning'|reasoning)[^>]*>.*?</details\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_THINK_RE = re.compile(r"<think\b[^>]*>.*?</think\s*>", re.IGNORECASE | re.DOTALL)
+_ANALYSIS_RE = re.compile(
+    r"<analysis\b[^>]*>.*?</analysis\s*>", re.IGNORECASE | re.DOTALL
+)
+
 
 class _MermaidResponseTooLarge(Exception):
     pass
@@ -243,6 +252,8 @@ class Action:
 
             try:
                 message_content = last_assistant_message["content"]
+                if isinstance(message_content, str):
+                    message_content = self._strip_reasoning_blocks(message_content)
 
                 if not message_content or not message_content.strip():
                     await self._send_notification(
@@ -759,6 +770,29 @@ class Action:
         if m:
             return m.group(1).strip()
         return None
+
+    def _strip_reasoning_blocks(self, text: str) -> str:
+        """
+        Strip model reasoning blocks from assistant Markdown before export.
+
+        OpenWebUI can include reasoning as interleaved <details type=\"reasoning\">...</details>
+        (and sometimes <think>/<analysis> blocks). These should never be exported into DOCX.
+        """
+        if not text:
+            return text
+
+        cur = text
+        for _ in range(10):
+            prev = cur
+            cur = _REASONING_DETAILS_RE.sub("", cur)
+            cur = _THINK_RE.sub("", cur)
+            cur = _ANALYSIS_RE.sub("", cur)
+            if cur == prev:
+                break
+
+        # Clean up excessive blank lines left by removals.
+        cur = re.sub(r"\n{4,}", "\n\n\n", cur)
+        return cur
 
     def _add_display_equation(self, doc: Document, latex: str):
         latex = (latex or "").strip()
