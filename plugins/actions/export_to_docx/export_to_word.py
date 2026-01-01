@@ -143,8 +143,6 @@ class Action:
             description="Mermaid background color for Kroki renders (empty disables)",
         )
 
-        # Native Word charts were removed; Kroki PNG rendering is the supported path.
-
         MERMAID_KROKI_SECURITY_MODE: MermaidRendererSecurityMode = Field(
             default="permissive",
             description="Kroki URL security: permissive | strict",
@@ -498,7 +496,8 @@ class Action:
         """
         Convert Markdown text to Word document
         Supports: headings, paragraphs, bold, italic, code blocks, lists, tables, links
-        Additionally: Mermaid fenced blocks (```mermaid) to native charts or images.
+        Additionally: Mermaid fenced blocks (```mermaid) rendered via Kroki (PNG/SVG),
+        LaTeX math to Word equations, and OpenWebUI citations to References.
         """
         doc = Document()
         self._mermaid_figure_counter = 0
@@ -600,7 +599,7 @@ class Action:
                             if mermaid_outcome_cursor < len(mermaid_outcomes)
                             else _MermaidOutcome(
                                 kind="code",
-                                error_classification="native_generation_error",
+                                error_classification="mermaid_preprocessing_mismatch",
                                 error_detail="Mermaid preprocessing mismatch",
                             )
                         )
@@ -895,14 +894,12 @@ class Action:
         cast(Any, paragraph)._p.append(hyperlink)
 
     def _add_references_section(self, doc: Document):
-        doc.add_paragraph()
         self.add_heading(doc, "References", 2)
 
         for ref in self._citation_refs:
             para = doc.add_paragraph(style="List Number")
             self._add_bookmark(para, ref.anchor)
             # Include URL as an external link when available.
-            self._add_text_run(para, f"[{ref.idx}] ", bold=False, italic=False, strike=False)
             if ref.url:
                 self._add_hyperlink(para, ref.title, ref.url, display_text=ref.title)
             else:
@@ -1698,7 +1695,7 @@ class Action:
                 logger.warning(f"Image embedding failed; falling back to code: {exc}")
                 outcome = _MermaidOutcome(
                     kind="code",
-                    error_classification="native_generation_error",
+                    error_classification="image_embedding_error",
                     error_detail=str(exc),
                 )
 
