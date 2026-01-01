@@ -98,6 +98,15 @@ class _MermaidOutcome:
     error_detail: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class _CitationRef:
+    idx: int
+    anchor: str
+    title: str
+    url: Optional[str]
+    source_id: str
+
+
 class Action:
     class Valves(BaseModel):
         TITLE_SOURCE: str = Field(
@@ -182,6 +191,9 @@ class Action:
         self.valves = self.Valves()
         self._mermaid_figure_counter: int = 0
         self._caption_style_name: Optional[str] = None
+        self._citation_anchor_by_index: Dict[int, str] = {}
+        self._citation_refs: List[_CitationRef] = []
+        self._bookmark_id_counter: int = 1
 
     async def _send_notification(self, emitter: Callable, type: str, content: str):
         await emitter(
@@ -286,8 +298,16 @@ class Action:
 
                 # Create Word document; if no h1 exists, inject chat title as h1
                 has_h1 = bool(re.search(r"^#\s+.+$", message_content, re.MULTILINE))
+                sources = (
+                    last_assistant_message.get("sources")
+                    or body.get("sources")
+                    or []
+                )
                 doc = await self.markdown_to_docx(
-                    message_content, top_heading=top_heading, has_h1=has_h1
+                    message_content,
+                    top_heading=top_heading,
+                    has_h1=has_h1,
+                    sources=sources,
                 )
 
                 # Save to memory
@@ -469,7 +489,11 @@ class Action:
         return re.sub(r'[\\/*?:"<>|]', "", name).strip()[:50]
 
     async def markdown_to_docx(
-        self, markdown_text: str, top_heading: str = "", has_h1: bool = False
+        self,
+        markdown_text: str,
+        top_heading: str = "",
+        has_h1: bool = False,
+        sources: Optional[List[dict]] = None,
     ) -> Document:
         """
         Convert Markdown text to Word document
@@ -479,6 +503,11 @@ class Action:
         doc = Document()
         self._mermaid_figure_counter = 0
         self._caption_style_name = None
+        self._citation_anchor_by_index = {}
+        self._citation_refs = self._build_citation_refs(sources or [])
+        self._bookmark_id_counter = 1
+        for ref in self._citation_refs:
+            self._citation_anchor_by_index[ref.idx] = ref.anchor
 
         # Set default fonts
         self.set_document_default_font(doc)
@@ -715,6 +744,9 @@ class Action:
                 self.add_paragraph(doc, l)
             self.add_paragraph(doc, r"\]")
 
+        if self._citation_refs:
+            self._add_references_section(doc)
+
         return doc
 
     def _extract_single_line_math(self, line: str) -> Optional[str]:
@@ -756,6 +788,125 @@ class Action:
         return parse_xml(xml)
 
     # (Math warning paragraphs removed)
+
+    def _build_citation_refs(self, sources: List[dict]) -> List[_CitationRef]:
+        citation_idx_map: Dict[str, int] = {}
+        refs_by_idx: Dict[int, _CitationRef] = {}
+
+        for source in sources or []:
+            if not isinstance(source, dict):
+                continue
+
+            documents = source.get("document") or []
+            metadatas = source.get("metadata") or []
+            src_info = source.get("source") or {}
+
+            src_name = src_info.get("name") if isinstance(src_info, dict) else None
+            src_id_default = (
+                src_info.get("id") if isinstance(src_info, dict) else None
+            )
+            src_urls = (
+                src_info.get("urls") if isinstance(src_info, dict) else None
+            )
+
+            if not isinstance(documents, list):
+                documents = []
+            if not isinstance(metadatas, list):
+                metadatas = []
+
+            for idx_doc, _doc_text in enumerate(documents):
+                meta = metadatas[idx_doc] if idx_doc < len(metadatas) else {}
+                if not isinstance(meta, dict):
+                    meta = {}
+
+                source_id = (
+                    meta.get("source")
+                    or src_id_default
+                    or "N/A"
+                )
+                source_id_str = str(source_id)
+
+                if source_id_str not in citation_idx_map:
+                    citation_idx_map[source_id_str] = len(citation_idx_map) + 1
+                idx = citation_idx_map[source_id_str]
+
+                if idx in refs_by_idx:
+                    continue
+
+                url: Optional[str] = None
+                if isinstance(source_id, str) and re.match(r"^https?://", source_id):
+                    url = source_id
+                elif isinstance(meta.get("url"), str) and re.match(r"^https?://", meta["url"]):
+                    url = meta["url"]
+                elif isinstance(src_urls, list) and src_urls:
+                    if isinstance(src_urls[0], str) and re.match(r"^https?://", src_urls[0]):
+                        url = src_urls[0]
+
+                title = (
+                    (meta.get("title") if isinstance(meta.get("title"), str) else None)
+                    or (meta.get("name") if isinstance(meta.get("name"), str) else None)
+                    or (src_name if isinstance(src_name, str) and src_name.strip() else None)
+                    or (url if url else None)
+                    or source_id_str
+                )
+
+                anchor = f"OWUIRef{idx}"
+                refs_by_idx[idx] = _CitationRef(
+                    idx=idx,
+                    anchor=anchor,
+                    title=title,
+                    url=url,
+                    source_id=source_id_str,
+                )
+
+        return [refs_by_idx[i] for i in sorted(refs_by_idx.keys())]
+
+    def _add_bookmark(self, paragraph, name: str):
+        bookmark_id = self._bookmark_id_counter
+        self._bookmark_id_counter += 1
+
+        start = OxmlElement("w:bookmarkStart")
+        start.set(qn("w:id"), str(bookmark_id))
+        start.set(qn("w:name"), name)
+
+        end = OxmlElement("w:bookmarkEnd")
+        end.set(qn("w:id"), str(bookmark_id))
+
+        p = cast(Any, paragraph)._p
+        p.insert(0, start)
+        p.append(end)
+
+    def _add_internal_hyperlink(self, paragraph, display_text: str, anchor: str):
+        hyperlink = OxmlElement("w:hyperlink")
+        hyperlink.set(qn("w:anchor"), anchor)
+
+        new_run = OxmlElement("w:r")
+        rPr = OxmlElement("w:rPr")
+        rStyle = OxmlElement("w:rStyle")
+        rStyle.set(qn("w:val"), "Hyperlink")
+        rPr.append(rStyle)
+
+        new_run.append(rPr)
+        t = OxmlElement("w:t")
+        t.text = display_text
+        new_run.append(t)
+
+        hyperlink.append(new_run)
+        cast(Any, paragraph)._p.append(hyperlink)
+
+    def _add_references_section(self, doc: Document):
+        doc.add_paragraph()
+        self.add_heading(doc, "References", 2)
+
+        for ref in self._citation_refs:
+            para = doc.add_paragraph(style="List Number")
+            self._add_bookmark(para, ref.anchor)
+            # Include URL as an external link when available.
+            self._add_text_run(para, f"[{ref.idx}] ", bold=False, italic=False, strike=False)
+            if ref.url:
+                self._add_hyperlink(para, ref.title, ref.url, display_text=ref.title)
+            else:
+                self._add_text_run(para, ref.title, bold=False, italic=False, strike=False)
 
     def _parse_fence_info(self, info_raw: str) -> Tuple[str, List[str]]:
         parts = [p for p in (info_raw or "").split() if p.strip()]
@@ -1964,6 +2115,16 @@ class Action:
                         self._add_hyperlink(paragraph, label, url)
                         i = close_paren + 1
                         continue
+                # Citation marker like [12] -> internal link to References.
+                if close != -1:
+                    inner = text[i + 1 : close].strip()
+                    if inner.isdigit():
+                        idx = int(inner)
+                        anchor = self._citation_anchor_by_index.get(idx)
+                        if anchor:
+                            self._add_internal_hyperlink(paragraph, f"[{idx}]", anchor)
+                            i = close + 1
+                            continue
 
             m = _AUTO_URL_RE.match(text, i)
             if m:
