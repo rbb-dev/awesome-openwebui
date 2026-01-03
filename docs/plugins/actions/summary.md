@@ -1,7 +1,7 @@
 # Summary
 
 <span class="category-badge action">Action</span>
-<span class="version-badge">v1.0.0</span>
+<span class="version-badge">v0.1.0</span>
 
 Generate concise summaries of long text content with key points extraction.
 

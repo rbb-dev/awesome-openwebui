@@ -8,8 +8,10 @@ OpenWebUI 增强功能集合。包含个人开发与收集的### 🧩 插件 (Pl
 
 #### Actions (交互增强)
 - **Smart Mind Map** (`smart-mind-map`): 智能分析文本并生成交互式思维导图。
+- **Smart Infographic** (`infographic`): 基于 AntV 的智能信息图生成工具。
 - **Knowledge Card** (`knowledge-card`): 快速生成精美的学习记忆卡片。
 - **Export to Excel** (`export_to_excel`): 将对话内容导出为 Excel 文件。
+- **Export to Word** (`export_to_docx`): 将对话内容导出为 Word 文档。
 - **Summary** (`summary`): 文本摘要生成工具。
 
 #### Filters (消息处理)

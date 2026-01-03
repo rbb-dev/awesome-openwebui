@@ -1,7 +1,7 @@
 # Export to Excel
 
 <span class="category-badge action">Action</span>
-<span class="version-badge">v1.0.0</span>
+<span class="version-badge">v0.3.3</span>
 
 Export chat conversations to Excel spreadsheet format for analysis, archiving, and sharing.
 
