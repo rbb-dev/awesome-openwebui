@@ -33,7 +33,7 @@ Actions are interactive plugins that:
 
     Transform text into professional infographics using AntV visualization engine with various templates.
 
-    **Version:** 1.0.0
+    **Version:** 1.3.0
 
     [:octicons-arrow-right-24: Documentation](smart-infographic.md)
 
@@ -43,7 +43,7 @@ Actions are interactive plugins that:
 
     Quickly generates beautiful learning memory cards, perfect for studying and memorization.
 
-    **Version:** 0.2.0
+    **Version:** 0.2.2
 
     [:octicons-arrow-right-24: Documentation](knowledge-card.md)
 
@@ -53,7 +53,7 @@ Actions are interactive plugins that:
 
     Export chat conversations to Excel spreadsheet format for analysis and archiving.
 
-    **Version:** 1.0.0
+    **Version:** 0.3.5
 
     [:octicons-arrow-right-24: Documentation](export-to-excel.md)
 
@@ -73,7 +73,7 @@ Actions are interactive plugins that:
 
     Generate concise summaries of long text content with key points extraction.
 
-    **Version:** 1.0.0
+    **Version:** 0.1.0
 
     [:octicons-arrow-right-24: Documentation](summary.md)
 

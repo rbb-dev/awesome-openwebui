@@ -1,7 +1,7 @@
 # Gemini Manifold Companion
 
 <span class="category-badge filter">Filter</span>
-<span class="version-badge">v1.0.0</span>
+<span class="version-badge">v0.3.2</span>
 
 Gemini Manifold Pipe 的伴随过滤器，用于增强 Gemini 集成的处理效果。
 

@@ -1,7 +1,7 @@
 # Gemini Manifold Companion
 
 <span class="category-badge filter">Filter</span>
-<span class="version-badge">v1.0.0</span>
+<span class="version-badge">v0.3.2</span>
 
 Companion filter for the Gemini Manifold pipe plugin, providing enhanced functionality.
 

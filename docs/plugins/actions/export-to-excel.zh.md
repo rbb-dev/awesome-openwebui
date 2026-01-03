@@ -1,11 +1,23 @@
 # Export to Excel（导出到 Excel）
 
 <span class="category-badge action">Action</span>
-<span class="version-badge">v1.0.0</span>
+<span class="version-badge">v0.3.4</span>
 
 将聊天记录导出为 Excel 表格，便于分析、归档和分享。
 
+
+### v0.3.5 更新内容
+- **导出范围**: 新增 `EXPORT_SCOPE` 配置项，可选择导出“最后一条消息”（默认）或“所有消息”中的表格。
+- **智能 Sheet 命名**: 根据 Markdown 标题、AI 标题（如启用）或消息索引（如 `消息1-表1`）自动命名 Sheet。
+- **多表格支持**: 优化了对单条或多条消息中包含多个表格的处理。
+
+### v0.3.4 更新内容
+
+- **智能文件名生成**：支持根据对话标题、AI 总结或 Markdown 标题生成文件名。
+- **配置选项**：新增 `TITLE_SOURCE` 设置，用于控制文件名生成策略。
+
 ---
+
 
 ## 概览
 
@@ -22,6 +34,13 @@ Export to Excel 插件可以把你的聊天记录下载为 Excel 文件，适用
 - :material-table: **格式化输出**：整洁的表格结构
 - :material-download: **一键下载**：即时生成文件
 - :material-history: **完整历史**：导出完整会话内容
+
+## 配置
+
+- **标题来源 (Title Source)**：选择文件名的生成方式：
+  - `chat_title`：使用对话标题（默认）。
+  - `ai_generated`：使用 AI 根据内容生成简洁标题。
+  - `markdown_title`：提取 Markdown 内容中的第一个 H1/H2 标题。
 
 ---
 

@@ -3,7 +3,7 @@ title: 导出为 Excel
 author: Fu-Jie
 author_url: https://github.com/Fu-Jie
 funding_url: https://github.com/Fu-Jie/awesome-openwebui
-version: 0.3.3
+version: 0.3.5
 icon_url: data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0xNSAySDZhMiAyIDAgMCAwLTIgMnYxNmEyIDIgMCAwIDAgMiAyaDEyYTIgMiAwIDAgMCAyLTJWN1oiLz48cGF0aCBkPSJNMTQgMnY0YTIgMiAwIDAgMCAyIDJoNCIvPjxwYXRoIGQ9Ik04IDEzaDIiLz48cGF0aCBkPSJNMTQgMTNoMiIvPjxwYXRoIGQ9Ik04IDE3aDIiLz48cGF0aCBkPSJNMTQgMTdoMiIvPjwvc3ZnPg==
 description: 将当前对话历史导出为 Excel (.xlsx) 文件，支持自动提取表头。
 """
@@ -15,14 +15,28 @@ import base64
 from fastapi import FastAPI, HTTPException
 from typing import Optional, Callable, Awaitable, Any, List, Dict
 import datetime
+import asyncio
+from open_webui.models.chats import Chats
+from open_webui.models.users import Users
+from open_webui.utils.chat import generate_chat_completion
+from pydantic import BaseModel, Field
 
 app = FastAPI()
 
 
 class Action:
+    class Valves(BaseModel):
+        TITLE_SOURCE: str = Field(
+            default="chat_title",
+            description="标题来源: 'chat_title' (对话标题), 'ai_generated' (AI生成), 'markdown_title' (Markdown标题)",
+        )
+        EXPORT_SCOPE: str = Field(
+            default="last_message",
+            description="导出范围: 'last_message' (仅最后一条消息), 'all_messages' (所有消息)",
+        )
 
     def __init__(self):
-        pass
+        self.valves = self.Valves()
 
     async def _send_notification(self, emitter: Callable, type: str, content: str):
         await emitter(
@@ -35,52 +49,167 @@ class Action:
         __user__=None,
         __event_emitter__=None,
         __event_call__: Optional[Callable[[Any], Awaitable[None]]] = None,
+        __request__: Optional[Any] = None,
     ):
         print(f"action:{__name__}")
         if isinstance(__user__, (list, tuple)):
             user_language = (
-                __user__[0].get("language", "zh-CN") if __user__ else "zh-CN"
+                __user__[0].get("language", "en-US") if __user__ else "en-US"
             )
-            user_name = __user__[0].get("name", "用户") if __user__[0] else "用户"
+            user_name = __user__[0].get("name", "User") if __user__[0] else "User"
             user_id = (
                 __user__[0]["id"]
                 if __user__ and "id" in __user__[0]
                 else "unknown_user"
             )
         elif isinstance(__user__, dict):
-            user_language = __user__.get("language", "zh-CN")
-            user_name = __user__.get("name", "用户")
+            user_language = __user__.get("language", "en-US")
+            user_name = __user__.get("name", "User")
             user_id = __user__.get("id", "unknown_user")
 
         if __event_emitter__:
-            last_assistant_message = body["messages"][-1]
-
             await __event_emitter__(
                 {
                     "type": "status",
-                    "data": {"description": "正在保存到文件...", "done": False},
+                    "data": {"description": "正在保存文件...", "done": False},
                 }
             )
 
             try:
-                message_content = last_assistant_message["content"]
-                tables = self.extract_tables_from_message(message_content)
+                messages = body.get("messages", [])
+                if not messages:
+                    raise HTTPException(status_code=400, detail="未找到消息。")
 
-                if not tables:
-                    raise HTTPException(status_code=400, detail="未找到任何表格。")
+                # Determine messages to process based on scope
+                target_messages = []
+                if self.valves.EXPORT_SCOPE == "all_messages":
+                    target_messages = messages
+                else:
+                    target_messages = [messages[-1]]
 
-                # 获取动态文件名和sheet名称
-                workbook_name, sheet_names = self.generate_names_from_content(
-                    message_content, tables
-                )
+                all_tables = []
+                all_sheet_names = []
 
-                # 使用优化后的文件名生成逻辑
+                # Process messages
+                for msg_index, msg in enumerate(target_messages):
+                    content = msg.get("content", "")
+                    tables = self.extract_tables_from_message(content)
+
+                    if not tables:
+                        continue
+
+                    # Generate sheet names for this message's tables
+
+                    # Extract headers for this message
+                    headers = []
+                    lines = content.split("\n")
+                    for i, line in enumerate(lines):
+                        if re.match(r"^#{1,6}\s+", line):
+                            headers.append(
+                                {
+                                    "text": re.sub(r"^#{1,6}\s+", "", line).strip(),
+                                    "line_num": i,
+                                }
+                            )
+
+                    for table_index, table in enumerate(tables):
+                        sheet_name = ""
+
+                        # 1. Try Markdown Header (closest above)
+                        table_start_line = table["start_line"] - 1
+                        closest_header_text = None
+                        candidate_headers = [
+                            h for h in headers if h["line_num"] < table_start_line
+                        ]
+                        if candidate_headers:
+                            closest_header = max(
+                                candidate_headers, key=lambda x: x["line_num"]
+                            )
+                            closest_header_text = closest_header["text"]
+
+                        if closest_header_text:
+                            sheet_name = self.clean_sheet_name(closest_header_text)
+
+                        # 2. AI Generated (Only if explicitly enabled and we have a request object)
+                        if (
+                            not sheet_name
+                            and self.valves.TITLE_SOURCE == "ai_generated"
+                            and len(target_messages) == 1
+                        ):
+                            pass
+
+                        # 3. Fallback: Message Index
+                        if not sheet_name:
+                            if len(target_messages) > 1:
+                                if len(tables) > 1:
+                                    sheet_name = f"消息{msg_index+1}-表{table_index+1}"
+                                else:
+                                    sheet_name = f"消息{msg_index+1}"
+                            else:
+                                # Single message (last_message scope)
+                                if len(tables) > 1:
+                                    sheet_name = f"表{table_index+1}"
+                                else:
+                                    sheet_name = "Sheet1"
+
+                        all_tables.append(table)
+                        all_sheet_names.append(sheet_name)
+
+                if not all_tables:
+                    raise HTTPException(
+                        status_code=400, detail="在选定范围内未找到表格。"
+                    )
+
+                # Deduplicate sheet names
+                final_sheet_names = []
+                seen_names = {}
+                for name in all_sheet_names:
+                    base_name = name
+                    counter = 1
+                    while name in seen_names:
+                        name = f"{base_name} ({counter})"
+                        counter += 1
+                    seen_names[name] = True
+                    final_sheet_names.append(name)
+
+                # Generate Workbook Title (Filename)
+                title = ""
+                chat_id = self.extract_chat_id(body, None)
+                chat_title = ""
+                if chat_id:
+                    chat_title = await self.fetch_chat_title(chat_id, user_id)
+
+                if (
+                    self.valves.TITLE_SOURCE == "chat_title"
+                    or not self.valves.TITLE_SOURCE
+                ):
+                    title = chat_title
+                elif self.valves.TITLE_SOURCE == "markdown_title":
+                    for msg in target_messages:
+                        extracted = self.extract_title(msg.get("content", ""))
+                        if extracted:
+                            title = extracted
+                            break
+
+                # Fallback for filename
+                if not title:
+                    if chat_title:
+                        title = chat_title
+                    else:
+                        if self.valves.TITLE_SOURCE != "markdown_title":
+                            for msg in target_messages:
+                                extracted = self.extract_title(msg.get("content", ""))
+                                if extracted:
+                                    title = extracted
+                                    break
+
                 current_datetime = datetime.datetime.now()
                 formatted_date = current_datetime.strftime("%Y%m%d")
 
-                # 如果没找到标题则使用 user_yyyymmdd 格式
-                if not workbook_name:
+                if not title:
                     workbook_name = f"{user_name}_{formatted_date}"
+                else:
+                    workbook_name = self.clean_filename(title)
 
                 filename = f"{workbook_name}.xlsx"
                 excel_file_path = os.path.join(
@@ -89,10 +218,12 @@ class Action:
 
                 os.makedirs(os.path.dirname(excel_file_path), exist_ok=True)
 
-                # 保存表格到Excel（使用符合中国规范的格式化功能）
-                self.save_tables_to_excel_enhanced(tables, excel_file_path, sheet_names)
+                # Save tables to Excel
+                self.save_tables_to_excel_enhanced(
+                    all_tables, excel_file_path, final_sheet_names
+                )
 
-                # 触发文件下载
+                # Trigger file download
                 if __event_call__:
                     with open(excel_file_path, "rb") as file:
                         file_content = file.read()
@@ -123,7 +254,7 @@ class Action:
                                     URL.revokeObjectURL(url);
                                     document.body.removeChild(a);
                                 }} catch (error) {{
-                                    console.error('触发下载时出错:', error);
+                                    console.error('Error triggering download:', error);
                                 }}
                                 """
                             },
@@ -132,15 +263,15 @@ class Action:
                 await __event_emitter__(
                     {
                         "type": "status",
-                        "data": {"description": "输出已保存", "done": True},
+                        "data": {"description": "文件已保存", "done": True},
                     }
                 )
 
-                # 清理临时文件
+                # Clean up temp file
                 if os.path.exists(excel_file_path):
                     os.remove(excel_file_path)
 
-                return {"message": "下载事件已触发"}
+                return {"message": "下载已触发"}
 
             except HTTPException as e:
                 print(f"Error processing tables: {str(e.detail)}")
@@ -148,13 +279,13 @@ class Action:
                     {
                         "type": "status",
                         "data": {
-                            "description": f"保存文件时出错: {e.detail}",
+                            "description": f"保存文件错误: {e.detail}",
                             "done": True,
                         },
                     }
                 )
                 await self._send_notification(
-                    __event_emitter__, "error", "没有找到可以导出的表格!"
+                    __event_emitter__, "error", "未找到可导出的表格！"
                 )
                 raise e
             except Exception as e:
@@ -163,14 +294,96 @@ class Action:
                     {
                         "type": "status",
                         "data": {
-                            "description": f"保存文件时出错: {str(e)}",
+                            "description": f"保存文件错误: {str(e)}",
                             "done": True,
                         },
                     }
                 )
                 await self._send_notification(
-                    __event_emitter__, "error", "没有找到可以导出的表格!"
+                    __event_emitter__, "error", "未找到可导出的表格！"
                 )
+
+    async def generate_title_using_ai(
+        self, body: dict, content: str, user_id: str, request: Any
+    ) -> str:
+        if not request:
+            return ""
+
+        try:
+            user_obj = Users.get_user_by_id(user_id)
+            model = body.get("model")
+
+            payload = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "你是一个乐于助人的助手。请为以下文本生成一个简短、简洁的标题（最多10个字）。不要使用引号。只输出标题。",
+                    },
+                    {"role": "user", "content": content[:2000]},  # 限制内容长度
+                ],
+                "stream": False,
+            }
+
+            response = await generate_chat_completion(request, payload, user_obj)
+            if response and "choices" in response:
+                return response["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            print(f"生成标题时出错: {e}")
+
+        return ""
+
+    def extract_title(self, content: str) -> str:
+        """从 Markdown h1/h2 中提取标题"""
+        lines = content.split("\n")
+        for line in lines:
+            # 仅匹配 h1-h2 标题
+            match = re.match(r"^#{1,2}\s+(.+)$", line.strip())
+            if match:
+                return match.group(1).strip()
+        return ""
+
+    def extract_chat_id(self, body: dict, metadata: Optional[dict]) -> str:
+        """从 body 或 metadata 中提取 chat_id"""
+        if isinstance(body, dict):
+            chat_id = body.get("chat_id") or body.get("id")
+            if isinstance(chat_id, str) and chat_id.strip():
+                return chat_id.strip()
+
+            for key in ("chat", "conversation"):
+                nested = body.get(key)
+                if isinstance(nested, dict):
+                    nested_id = nested.get("id") or nested.get("chat_id")
+                    if isinstance(nested_id, str) and nested_id.strip():
+                        return nested_id.strip()
+        if isinstance(metadata, dict):
+            chat_id = metadata.get("chat_id")
+            if isinstance(chat_id, str) and chat_id.strip():
+                return chat_id.strip()
+        return ""
+
+    async def fetch_chat_title(self, chat_id: str, user_id: str = "") -> str:
+        """通过 chat_id 从数据库获取对话标题"""
+        if not chat_id:
+            return ""
+
+        def _load_chat():
+            if user_id:
+                return Chats.get_chat_by_id_and_user_id(id=chat_id, user_id=user_id)
+            return Chats.get_chat_by_id(chat_id)
+
+        try:
+            chat = await asyncio.to_thread(_load_chat)
+        except Exception as exc:
+            print(f"加载对话 {chat_id} 失败: {exc}")
+            return ""
+
+        if not chat:
+            return ""
+
+        data = getattr(chat, "chat", {}) or {}
+        title = data.get("title") or getattr(chat, "title", "")
+        return title.strip() if isinstance(title, str) else ""
 
     def extract_tables_from_message(self, message: str) -> List[Dict]:
         """
@@ -541,6 +754,28 @@ class Action:
                     }
                 )
 
+                # 粗体单元格样式 (用于全单元格加粗)
+                text_bold_format = workbook.add_format(
+                    {
+                        "border": 1,
+                        "align": "left",
+                        "valign": "vcenter",
+                        "text_wrap": True,
+                        "bold": True,
+                    }
+                )
+
+                # 斜体单元格样式 (用于全单元格斜体)
+                text_italic_format = workbook.add_format(
+                    {
+                        "border": 1,
+                        "align": "left",
+                        "valign": "vcenter",
+                        "text_wrap": True,
+                        "italic": True,
+                    }
+                )
+
                 for i, table in enumerate(tables):
                     try:
                         table_data = table["data"]
@@ -612,6 +847,8 @@ class Action:
                             decimal_format,
                             date_format,
                             sequence_format,
+                            text_bold_format,
+                            text_italic_format,
                         )
 
                     except Exception as e:
@@ -635,6 +872,8 @@ class Action:
         decimal_format,
         date_format,
         sequence_format,
+        text_bold_format=None,
+        text_italic_format=None,
     ):
         """
         应用符合中国官方表格规范的格式化
@@ -643,6 +882,7 @@ class Action:
         - 文本: 左对齐
         - 日期: 居中对齐
         - 序号: 居中对齐
+        - 支持全单元格 Markdown 粗体 (**text**) 和斜体 (*text*)
         """
         try:
             # 1. 写入表头（居中对齐）
@@ -704,7 +944,28 @@ class Action:
                         # 文本类型 - 左对齐
                         current_format = text_format
 
-                    worksheet.write(row_idx + 1, col_idx, value, current_format)
+                    if content_type == "text" and isinstance(value, str):
+                        # 检查是否全单元格加粗 (**text**)
+                        match_bold = re.fullmatch(r"\*\*(.+)\*\*", value.strip())
+                        # 检查是否全单元格斜体 (*text*)
+                        match_italic = re.fullmatch(r"\*(.+)\*", value.strip())
+
+                        if match_bold:
+                            # 提取内容并应用粗体格式
+                            clean_value = match_bold.group(1)
+                            worksheet.write(
+                                row_idx + 1, col_idx, clean_value, text_bold_format
+                            )
+                        elif match_italic:
+                            # 提取内容并应用斜体格式
+                            clean_value = match_italic.group(1)
+                            worksheet.write(
+                                row_idx + 1, col_idx, clean_value, text_italic_format
+                            )
+                        else:
+                            worksheet.write(row_idx + 1, col_idx, value, current_format)
+                    else:
+                        worksheet.write(row_idx + 1, col_idx, value, current_format)
 
             # 4. 自动调整列宽
             for col_idx, column in enumerate(headers):
@@ -801,6 +1062,9 @@ class Action:
                 )
 
             print("Applied basic formatting fallback")
+
+        except Exception as e:
+            print(f"Warning: Even basic formatting failed: {str(e)}")
 
         except Exception as e:
             print(f"Warning: Even basic formatting failed: {str(e)}")

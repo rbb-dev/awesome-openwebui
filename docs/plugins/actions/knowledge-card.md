@@ -1,7 +1,7 @@
 # Knowledge Card
 
 <span class="category-badge action">Action</span>
-<span class="version-badge">v0.2.0</span>
+<span class="version-badge">v0.2.2</span>
 
 Quickly generates beautiful learning memory cards, perfect for studying and quick memorization.
 

@@ -37,7 +37,9 @@ README 文件应包含以下内容：
 - 安装和设置说明 / Installation and setup instructions
 - 使用示例 / Usage examples
 - 故障排除指南 / Troubleshooting guide
+- 故障排除指南 / Troubleshooting guide
 - 版本和作者信息 / Version and author information
+- **新增功能 / New Features**: 如果是更新现有插件，必须明确列出并描述新增功能（发布到官方市场的重要要求）。/ If updating an existing plugin, explicitly list and describe new features (Critical for official market release).
 
 ### 官方文档 (Official Documentation)
 
@@ -795,6 +797,24 @@ For iframe plugins to access parent document theme information, users need to co
 - [ ] 实现 Valves 配置
 - [ ] 使用 logging 而非 print
 - [ ] 测试双语界面
+- [ ] **一致性检查 (Consistency Check)**:
+    - [ ] 更新 `README.md` 插件列表
+    - [ ] 更新 `README_CN.md` 插件列表
+    - [ ] 更新/创建 `docs/` 下的对应文档
+    - [ ] 确保文档版本号与代码一致
+
+---
+
+## 🔄 一致性维护 (Consistency Maintenance)
+
+任何插件的**新增、修改或移除**，必须同时更新以下三个位置，保持完全一致：
+
+1. **插件代码 (Plugin Code)**: 更新 `version` 和功能实现。
+2. **项目文档 (Docs)**: 更新 `docs/` 下对应的文档文件（版本号、功能描述）。
+3. **自述文件 (README)**: 更新根目录下的 `README.md` 和 `README_CN.md` 中的插件列表。
+
+> [!IMPORTANT]
+> 提交 PR 前，请务必检查这三处是否同步。例如：如果删除了一个插件，必须同时从 README 列表中移除，并删除对应的 docs 文档。
 
 ---
 
@@ -808,6 +828,8 @@ For iframe plugins to access parent document theme information, users need to co
 2. 📝 生成发布说明（包含更新内容和提交记录）
 3. 📦 创建 GitHub Release（包含可下载的插件文件）
 4. 🏷️ 自动生成版本号（格式：`vYYYY.MM.DD-运行号`）
+
+**注意**：仅**移除插件**（删除文件）**不会触发**自动发布。只有新增或修改插件（且更新了版本号）才会触发发布。移除的插件将不会出现在发布日志中。
 
 ### 发布前必须完成 (Pre-release Requirements)
 
@@ -933,3 +955,32 @@ GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
 ## License
 
 MIT License
+
+---
+
+## 📝 Commit Message Guidelines
+
+**Commit messages MUST be in English.** Do not use Chinese.
+
+### Format
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation only changes
+- `style`: Changes that do not affect the meaning of the code (white-space, formatting, etc)
+- `refactor`: A code change that neither fixes a bug nor adds a feature
+- `perf`: A code change that improves performance
+- `test`: Adding missing tests or correcting existing tests
+- `chore`: Changes to the build process or auxiliary tools and libraries such as documentation generation
+
+### Examples
+
+✅ **Good:**
+- `feat: add new export to pdf plugin`
+- `fix: resolve icon rendering issue in documentation`
+- `docs: update README with installation steps`
+
+❌ **Bad:**
+- `新增导出PDF插件` (Chinese is not allowed)
+- `update code` (Too vague)

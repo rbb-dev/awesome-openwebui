@@ -1,7 +1,7 @@
 # Async Context Compression（异步上下文压缩）
 
 <span class="category-badge filter">Filter</span>
-<span class="version-badge">v1.0.0</span>
+<span class="version-badge">v1.1.0</span>
 
 通过智能摘要减少长对话的 token 消耗，同时保持对话连贯。
 

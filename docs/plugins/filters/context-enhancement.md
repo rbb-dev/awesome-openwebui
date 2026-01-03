@@ -1,7 +1,7 @@
 # Context Enhancement
 
 <span class="category-badge filter">Filter</span>
-<span class="version-badge">v1.0.0</span>
+<span class="version-badge">v0.2</span>
 
 Enhances chat context with additional information for improved LLM responses.
 

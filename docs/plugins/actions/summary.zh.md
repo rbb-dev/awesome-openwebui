@@ -1,7 +1,7 @@
 # Summary（摘要）
 
 <span class="category-badge action">Action</span>
-<span class="version-badge">v1.0.0</span>
+<span class="version-badge">v0.1.0</span>
 
 为长文本生成简洁摘要，并提取关键要点。
 
