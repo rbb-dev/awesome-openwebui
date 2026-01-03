@@ -109,9 +109,7 @@ def scan_plugins_directory(plugins_dir: str) -> list[dict[str, Any]]:
     return plugins
 
 
-def compare_versions(
-    current: list[dict], previous_file: str
-) -> dict[str, list[dict]]:
+def compare_versions(current: list[dict], previous_file: str) -> dict[str, list[dict]]:
     """
     Compare current plugin versions with a previous version file.
     比较当前插件版本与之前的版本文件。
@@ -168,7 +166,9 @@ def format_markdown_table(plugins: list[dict]) -> str:
         "|---------------|----------------|-------------|---------------------|",
     ]
 
-    for plugin in sorted(plugins, key=lambda x: (x.get("type", ""), x.get("title", ""))):
+    for plugin in sorted(
+        plugins, key=lambda x: (x.get("type", ""), x.get("title", ""))
+    ):
         title = plugin.get("title", "Unknown")
         version = plugin.get("version", "Unknown")
         plugin_type = plugin.get("type", "Unknown").capitalize()
@@ -181,7 +181,9 @@ def format_markdown_table(plugins: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def format_release_notes(comparison: dict[str, list]) -> str:
+def format_release_notes(
+    comparison: dict[str, list], ignore_removed: bool = False
+) -> str:
     """
     Format version comparison as release notes.
     将版本比较格式化为发布说明。
@@ -206,7 +208,7 @@ def format_release_notes(comparison: dict[str, list]) -> str:
             )
         lines.append("")
 
-    if comparison["removed"]:
+    if comparison["removed"] and not ignore_removed:
         lines.append("### 移除插件 / Removed Plugins")
         for plugin in comparison["removed"]:
             lines.append(f"- **{plugin['title']}** v{plugin['version']}")
@@ -240,6 +242,11 @@ def main():
         help="Compare with previous version JSON file",
     )
     parser.add_argument(
+        "--ignore-removed",
+        action="store_true",
+        help="Ignore removed plugins in output",
+    )
+    parser.add_argument(
         "--output",
         "-o",
         metavar="FILE",
@@ -257,7 +264,9 @@ def main():
         if args.json:
             output = json.dumps(comparison, indent=2, ensure_ascii=False)
         else:
-            output = format_release_notes(comparison)
+            output = format_release_notes(
+                comparison, ignore_removed=args.ignore_removed
+            )
             if not output.strip():
                 output = "No changes detected. / 未检测到更改。"
     elif args.json:
@@ -268,7 +277,9 @@ def main():
         # Default: simple list
         lines = []
         for plugin in sorted(plugins, key=lambda x: x.get("title", "")):
-            lines.append(f"{plugin.get('title', 'Unknown')}: v{plugin.get('version', '?')}")
+            lines.append(
+                f"{plugin.get('title', 'Unknown')}: v{plugin.get('version', '?')}"
+            )
         output = "\n".join(lines)
 
     # Write output

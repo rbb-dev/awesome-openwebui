@@ -101,7 +101,7 @@ jobs:
           fi
           
           # Compare versions and generate release notes
-          python scripts/extract_plugin_versions.py --compare old_versions.json --output changes.md
+          python scripts/extract_plugin_versions.py --compare old_versions.json --ignore-removed --output changes.md
           python scripts/extract_plugin_versions.py --compare old_versions.json --json --output changes.json
           
           echo "=== Version Changes ==="
