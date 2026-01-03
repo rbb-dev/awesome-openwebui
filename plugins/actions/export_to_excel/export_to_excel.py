@@ -749,9 +749,16 @@ class Action:
                     }
                 )
 
-                # Bold and Italic font formats (for rich text)
-                bold_font_format = workbook.add_format({"bold": True})
-                italic_font_format = workbook.add_format({"italic": True})
+                # Bold cell style (for full cell bolding)
+                text_bold_format = workbook.add_format(
+                    {
+                        "border": 1,
+                        "align": "left",
+                        "valign": "vcenter",
+                        "text_wrap": True,
+                        "bold": True,
+                    }
+                )
 
                 for i, table in enumerate(tables):
                     try:
@@ -824,8 +831,7 @@ class Action:
                             decimal_format,
                             date_format,
                             sequence_format,
-                            bold_font_format,
-                            italic_font_format,
+                            text_bold_format,
                         )
 
                     except Exception as e:
@@ -849,8 +855,7 @@ class Action:
         decimal_format,
         date_format,
         sequence_format,
-        bold_font_format=None,
-        italic_font_format=None,
+        text_bold_format=None,
     ):
         """
         Apply enhanced formatting
@@ -859,7 +864,7 @@ class Action:
         - Text: Left aligned
         - Date: Center aligned
         - Sequence: Center aligned
-        - Supports Markdown bold (**text**) and italic (*text*)
+        - Supports full cell Markdown bold (**text**)
         """
         try:
             # 1. Write headers (Center aligned)
@@ -921,21 +926,17 @@ class Action:
                         # Text - Left aligned
                         current_format = text_format
 
-                    if (
-                        content_type == "text"
-                        and isinstance(value, str)
-                        and ("**" in value or "*" in value)
-                    ):
-                        # Try to parse Markdown bold/italic
-                        self.write_rich_string_cell(
-                            worksheet,
-                            row_idx + 1,
-                            col_idx,
-                            value,
-                            current_format,
-                            bold_font_format,
-                            italic_font_format,
-                        )
+                    if content_type == "text" and isinstance(value, str):
+                        # Check for full cell bold (**text**)
+                        match = re.fullmatch(r"\*\*(.+)\*\*", value.strip())
+                        if match:
+                            # Extract content and apply bold format
+                            clean_value = match.group(1)
+                            worksheet.write(
+                                row_idx + 1, col_idx, clean_value, text_bold_format
+                            )
+                        else:
+                            worksheet.write(row_idx + 1, col_idx, value, current_format)
                     else:
                         worksheet.write(row_idx + 1, col_idx, value, current_format)
 
@@ -1028,59 +1029,5 @@ class Action:
         except Exception as e:
             print(f"Error in basic formatting: {str(e)}")
 
-    def write_rich_string_cell(
-        self,
-        worksheet,
-        row,
-        col,
-        text,
-        cell_format,
-        bold_format,
-        italic_format,
-    ):
-        """
-        Parse Markdown bold (**) and italic (*) and write to rich string cell
-        Note: Does not support nested formatting or mixed overlapping tags for simplicity.
-        """
-        try:
-            parts = []
-            current_text = text
-            has_formatting = False
-
-            # Regex to match **bold** OR *italic*
-            # Priority to bold (**) because it's longer
-            pattern = re.compile(r"(\*\*(.*?)\*\*)|(\*(.*?)\*)")
-
-            last_end = 0
-            for match in pattern.finditer(text):
-                has_formatting = True
-                start, end = match.span()
-
-                # Add preceding normal text
-                if start > last_end:
-                    parts.append(text[last_end:start])
-
-                # Add formatted text
-                if match.group(1):  # Bold match (**...**)
-                    parts.append(bold_format)
-                    parts.append(match.group(2))
-                elif match.group(3):  # Italic match (*...*)
-                    parts.append(italic_format)
-                    parts.append(match.group(4))
-
-                last_end = end
-
-            # Add remaining text
-            if last_end < len(text):
-                parts.append(text[last_end:])
-
-            if has_formatting and len(parts) > 1:
-                # Must end with cell_format
-                parts.append(cell_format)
-                worksheet.write_rich_string(row, col, *parts)
-            else:
-                worksheet.write(row, col, text, cell_format)
-
         except Exception as e:
-            print(f"Error writing rich string: {e}")
-            worksheet.write(row, col, text, cell_format)
+            print(f"Error in basic formatting: {str(e)}")
