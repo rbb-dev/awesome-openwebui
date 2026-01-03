@@ -795,6 +795,11 @@ For iframe plugins to access parent document theme information, users need to co
 - [ ] 实现 Valves 配置
 - [ ] 使用 logging 而非 print
 - [ ] 测试双语界面
+- [ ] **一致性检查 (Consistency Check)**:
+    - [ ] 更新 `README.md` 插件列表
+    - [ ] 更新 `README_CN.md` 插件列表
+    - [ ] 更新/创建 `docs/` 下的对应文档
+    - [ ] 确保文档版本号与代码一致
 
 ---
 
