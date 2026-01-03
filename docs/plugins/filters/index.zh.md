@@ -42,7 +42,7 @@ Filter 充当消息管线中的中间件：
 
     Gemini Manifold Pipe 插件的伴随过滤器。
 
-    **版本：** 0.3.2
+    **版本：** 1.7.0
 
     [:octicons-arrow-right-24: 查看文档](gemini-manifold-companion.md)
 

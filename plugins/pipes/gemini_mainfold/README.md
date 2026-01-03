@@ -1,6 +1,6 @@
 # Example Pipe Plugin
 
-**Author:** OpenWebUI Community | **Version:** 1.0.0 | **License:** MIT
+**Author:** OpenWebUI Community | **Version:** 1.26.0 | **License:** MIT
 
 This is a template/example for creating Pipe plugins in OpenWebUI.
 

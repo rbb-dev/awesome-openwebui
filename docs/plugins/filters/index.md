@@ -42,7 +42,7 @@ Filters act as middleware in the message pipeline:
 
     Companion filter for the Gemini Manifold pipe plugin.
 
-    **Version:** 0.3.2
+    **Version:** 1.7.0
 
     [:octicons-arrow-right-24: Documentation](gemini-manifold-companion.md)
 
