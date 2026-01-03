@@ -331,9 +331,14 @@ jobs:
           prerelease: ${{ github.event.inputs.prerelease || false }}
           files: |
             plugin_versions.json
-            release_plugins/**/*.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          find release_plugins -type f -name "*.py" -print0 | xargs -0 gh release upload ${{ steps.version.outputs.version }} --clobber
 
       - name: Summary
         run: |
