@@ -754,6 +754,9 @@ class Action:
                     }
                 )
 
+                # 粗体字体格式 (用于富文本)
+                bold_font_format = workbook.add_format({"bold": True})
+
                 for i, table in enumerate(tables):
                     try:
                         table_data = table["data"]
@@ -825,6 +828,7 @@ class Action:
                             decimal_format,
                             date_format,
                             sequence_format,
+                            bold_font_format,
                         )
 
                     except Exception as e:
@@ -848,6 +852,7 @@ class Action:
         decimal_format,
         date_format,
         sequence_format,
+        bold_font_format=None,
     ):
         """
         应用符合中国官方表格规范的格式化
@@ -856,6 +861,7 @@ class Action:
         - 文本: 左对齐
         - 日期: 居中对齐
         - 序号: 居中对齐
+        - 支持 Markdown 粗体 (**text**)
         """
         try:
             # 1. 写入表头（居中对齐）
@@ -917,7 +923,22 @@ class Action:
                         # 文本类型 - 左对齐
                         current_format = text_format
 
-                    worksheet.write(row_idx + 1, col_idx, value, current_format)
+                    if (
+                        content_type == "text"
+                        and isinstance(value, str)
+                        and "**" in value
+                    ):
+                        # 尝试解析 Markdown 粗体
+                        self.write_rich_string_cell(
+                            worksheet,
+                            row_idx + 1,
+                            col_idx,
+                            value,
+                            current_format,
+                            bold_font_format,
+                        )
+                    else:
+                        worksheet.write(row_idx + 1, col_idx, value, current_format)
 
             # 4. 自动调整列宽
             for col_idx, column in enumerate(headers):
@@ -1017,3 +1038,49 @@ class Action:
 
         except Exception as e:
             print(f"Warning: Even basic formatting failed: {str(e)}")
+
+    def write_rich_string_cell(
+        self, worksheet, row, col, text, cell_format, bold_format
+    ):
+        """
+        解析 Markdown 粗体并写入富文本单元格
+        """
+        try:
+            parts = []
+            current_text = text
+            has_bold = False
+
+            # 简单的解析逻辑：分割 **
+            while "**" in current_text:
+                start = current_text.find("**")
+                end = current_text.find("**", start + 2)
+
+                if end != -1:
+                    has_bold = True
+                    # 添加前面的普通文本
+                    if start > 0:
+                        parts.append(current_text[:start])
+
+                    # 添加粗体文本
+                    bold_text = current_text[start + 2 : end]
+                    parts.append(bold_format)
+                    parts.append(bold_text)
+
+                    current_text = current_text[end + 2 :]
+                else:
+                    break
+
+            # 添加剩余文本
+            if current_text:
+                parts.append(current_text)
+
+            if has_bold and len(parts) > 1:
+                # 必须以 cell_format 结尾
+                parts.append(cell_format)
+                worksheet.write_rich_string(row, col, *parts)
+            else:
+                worksheet.write(row, col, text, cell_format)
+
+        except Exception as e:
+            print(f"Error writing rich string: {e}")
+            worksheet.write(row, col, text, cell_format)
