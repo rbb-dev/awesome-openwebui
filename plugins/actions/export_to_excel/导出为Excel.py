@@ -754,8 +754,9 @@ class Action:
                     }
                 )
 
-                # 粗体字体格式 (用于富文本)
+                # 粗体和斜体字体格式 (用于富文本)
                 bold_font_format = workbook.add_format({"bold": True})
+                italic_font_format = workbook.add_format({"italic": True})
 
                 for i, table in enumerate(tables):
                     try:
@@ -829,6 +830,7 @@ class Action:
                             date_format,
                             sequence_format,
                             bold_font_format,
+                            italic_font_format,
                         )
 
                     except Exception as e:
@@ -853,6 +855,7 @@ class Action:
         date_format,
         sequence_format,
         bold_font_format=None,
+        italic_font_format=None,
     ):
         """
         应用符合中国官方表格规范的格式化
@@ -861,7 +864,7 @@ class Action:
         - 文本: 左对齐
         - 日期: 居中对齐
         - 序号: 居中对齐
-        - 支持 Markdown 粗体 (**text**)
+        - 支持 Markdown 粗体 (**text**) 和斜体 (*text*)
         """
         try:
             # 1. 写入表头（居中对齐）
@@ -926,9 +929,9 @@ class Action:
                     if (
                         content_type == "text"
                         and isinstance(value, str)
-                        and "**" in value
+                        and ("**" in value or "*" in value)
                     ):
-                        # 尝试解析 Markdown 粗体
+                        # 尝试解析 Markdown 粗体/斜体
                         self.write_rich_string_cell(
                             worksheet,
                             row_idx + 1,
@@ -936,6 +939,7 @@ class Action:
                             value,
                             current_format,
                             bold_font_format,
+                            italic_font_format,
                         )
                     else:
                         worksheet.write(row_idx + 1, col_idx, value, current_format)
@@ -1040,41 +1044,52 @@ class Action:
             print(f"Warning: Even basic formatting failed: {str(e)}")
 
     def write_rich_string_cell(
-        self, worksheet, row, col, text, cell_format, bold_format
+        self,
+        worksheet,
+        row,
+        col,
+        text,
+        cell_format,
+        bold_format,
+        italic_format,
     ):
         """
-        解析 Markdown 粗体并写入富文本单元格
+        解析 Markdown 粗体 (**) 和斜体 (*) 并写入富文本单元格
+        注意: 为简化实现，不支持嵌套格式或混合重叠标签
         """
         try:
             parts = []
             current_text = text
-            has_bold = False
+            has_formatting = False
 
-            # 简单的解析逻辑：分割 **
-            while "**" in current_text:
-                start = current_text.find("**")
-                end = current_text.find("**", start + 2)
+            # 正则匹配 **bold** 或 *italic*
+            # 优先匹配粗体 (**)，因为它更长
+            pattern = re.compile(r"(\*\*(.*?)\*\*)|(\*(.*?)\*)")
 
-                if end != -1:
-                    has_bold = True
-                    # 添加前面的普通文本
-                    if start > 0:
-                        parts.append(current_text[:start])
+            last_end = 0
+            for match in pattern.finditer(text):
+                has_formatting = True
+                start, end = match.span()
 
-                    # 添加粗体文本
-                    bold_text = current_text[start + 2 : end]
+                # 添加前面的普通文本
+                if start > last_end:
+                    parts.append(text[last_end:start])
+
+                # 添加格式化文本
+                if match.group(1):  # 粗体匹配 (**...**)
                     parts.append(bold_format)
-                    parts.append(bold_text)
+                    parts.append(match.group(2))
+                elif match.group(3):  # 斜体匹配 (*...*)
+                    parts.append(italic_format)
+                    parts.append(match.group(4))
 
-                    current_text = current_text[end + 2 :]
-                else:
-                    break
+                last_end = end
 
             # 添加剩余文本
-            if current_text:
-                parts.append(current_text)
+            if last_end < len(text):
+                parts.append(text[last_end:])
 
-            if has_bold and len(parts) > 1:
+            if has_formatting and len(parts) > 1:
                 # 必须以 cell_format 结尾
                 parts.append(cell_format)
                 worksheet.write_rich_string(row, col, *parts)
