@@ -953,3 +953,32 @@ GitHub: [Fu-Jie/awesome-openwebui](https://github.com/Fu-Jie/awesome-openwebui)
 ## License
 
 MIT License
+
+---
+
+## 📝 Commit Message Guidelines
+
+**Commit messages MUST be in English.** Do not use Chinese.
+
+### Format
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation only changes
+- `style`: Changes that do not affect the meaning of the code (white-space, formatting, etc)
+- `refactor`: A code change that neither fixes a bug nor adds a feature
+- `perf`: A code change that improves performance
+- `test`: Adding missing tests or correcting existing tests
+- `chore`: Changes to the build process or auxiliary tools and libraries such as documentation generation
+
+### Examples
+
+✅ **Good:**
+- `feat: add new export to pdf plugin`
+- `fix: resolve icon rendering issue in documentation`
+- `docs: update README with installation steps`
+
+❌ **Bad:**
+- `新增导出PDF插件` (Chinese is not allowed)
+- `update code` (Too vague)

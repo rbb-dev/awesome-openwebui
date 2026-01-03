@@ -32,7 +32,7 @@ Filters act as middleware in the message pipeline:
 
     Enhances chat context with additional information for better responses.
 
-    **Version:** 1.0.0
+    **Version:** 0.2
 
     [:octicons-arrow-right-24: Documentation](context-enhancement.md)
 
@@ -42,7 +42,7 @@ Filters act as middleware in the message pipeline:
 
     Companion filter for the Gemini Manifold pipe plugin.
 
-    **Version:** 1.0.0
+    **Version:** 0.3.2
 
     [:octicons-arrow-right-24: Documentation](gemini-manifold-companion.md)
 

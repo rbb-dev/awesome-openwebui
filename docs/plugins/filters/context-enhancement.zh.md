@@ -1,7 +1,7 @@
 # Context Enhancement（上下文增强）
 
 <span class="category-badge filter">Filter</span>
-<span class="version-badge">v1.0.0</span>
+<span class="version-badge">v0.2</span>
 
 为聊天自动补充上下文信息，让 LLM 回复更相关、更准确。
 

@@ -32,7 +32,7 @@ Filter 充当消息管线中的中间件：
 
     为聊天增加额外信息，提升回复质量。
 
-    **版本：** 1.0.0
+    **版本：** 0.2
 
     [:octicons-arrow-right-24: 查看文档](context-enhancement.md)
 
@@ -42,7 +42,7 @@ Filter 充当消息管线中的中间件：
 
     Gemini Manifold Pipe 插件的伴随过滤器。
 
-    **版本：** 1.0.0
+    **版本：** 0.3.2
 
     [:octicons-arrow-right-24: 查看文档](gemini-manifold-companion.md)
 
