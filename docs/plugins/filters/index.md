@@ -16,7 +16,7 @@ Filters act as middleware in the message pipeline:
 
 <div class="grid cards" markdown>
 
--   :material-compress:{ .lg .middle } **Async Context Compression**
+-   :material-arrow-collapse-vertical:{ .lg .middle } **Async Context Compression**
 
     ---
 
