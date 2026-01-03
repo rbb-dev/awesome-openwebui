@@ -16,17 +16,17 @@ Filters act as middleware in the message pipeline:
 
 <div class="grid cards" markdown>
 
--   :material-compress: { .lg .middle } **Async Context Compression**
+-   :material-compress:{ .lg .middle } **Async Context Compression**
 
     ---
 
     Reduces token consumption in long conversations through intelligent summarization while maintaining coherence.
 
-    **Version:** 1.0.0
+    **Version:** 1.1.0
 
     [:octicons-arrow-right-24: Documentation](async-context-compression.md)
 
--   :material-text-box-plus: { .lg .middle } **Context Enhancement**
+-   :material-text-box-plus:{ .lg .middle } **Context Enhancement**
 
     ---
 
@@ -36,7 +36,7 @@ Filters act as middleware in the message pipeline:
 
     [:octicons-arrow-right-24: Documentation](context-enhancement.md)
 
--   :material-google: { .lg .middle } **Gemini Manifold Companion**
+-   :material-google:{ .lg .middle } **Gemini Manifold Companion**
 
     ---
 

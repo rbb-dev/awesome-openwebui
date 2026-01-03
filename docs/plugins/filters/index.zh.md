@@ -16,17 +16,17 @@ Filter 充当消息管线中的中间件：
 
 <div class="grid cards" markdown>
 
--   :material-compress: { .lg .middle } **Async Context Compression**
+-   :material-compress:{ .lg .middle } **Async Context Compression**
 
     ---
 
     通过智能总结减少长对话的 token 消耗，同时保持连贯性。
 
-    **版本：** 1.0.0
+    **版本：** 1.1.0
 
     [:octicons-arrow-right-24: 查看文档](async-context-compression.md)
 
--   :material-text-box-plus: { .lg .middle } **Context Enhancement**
+-   :material-text-box-plus:{ .lg .middle } **Context Enhancement**
 
     ---
 
@@ -36,7 +36,7 @@ Filter 充当消息管线中的中间件：
 
     [:octicons-arrow-right-24: 查看文档](context-enhancement.md)
 
--   :material-google: { .lg .middle } **Gemini Manifold Companion**
+-   :material-google:{ .lg .middle } **Gemini Manifold Companion**
 
     ---
 
