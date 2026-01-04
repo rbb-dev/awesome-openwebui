@@ -3,11 +3,13 @@ title: Export to Word
 author: Fu-Jie
 author_url: https://github.com/Fu-Jie
 funding_url: https://github.com/Fu-Jie/awesome-openwebui
-version: 0.2.0
+version: 0.3.0
 icon_url: data:image/svg+xml;base64,PHN2ZwogIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICB3aWR0aD0iMjQiCiAgaGVpZ2h0PSIyNCIKICB2aWV3Qm94PSIwIDAgMjQgMjQiCiAgZmlsbD0ibm9uZSIKICBzdHJva2U9ImN1cnJlbnRDb2xvciIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8cGF0aCBkPSJNNiAyMmEyIDIgMCAwIDEtMi0yVjRhMiAyIDAgMCAxIDItMmg4YTIuNCAyLjQgMCAwIDEgMS43MDQuNzA2bDMuNTg4IDMuNTg4QTIuNCAyLjQgMCAwIDEgMjAgOHYxMmEyIDIgMCAwIDEtMiAyeiIgLz4KICA8cGF0aCBkPSJNMTQgMnY1YTEgMSAwIDAgMCAxIDFoNSIgLz4KICA8cGF0aCBkPSJNMTAgOUg4IiAvPgogIDxwYXRoIGQ9Ik0xNiAxM0g4IiAvPgogIDxwYXRoIGQ9Ik0xNiAxN0g4IiAvPgo8L3N2Zz4K
-requirements: python-docx, httpx, Pygments, latex2mathml, mathml2omml
-description: Export current conversation from Markdown to Word (.docx) with Mermaid (Kroki PNG), LaTeX math, real hyperlinks, improved tables, syntax highlighting, and blockquote support.
+requirements: python-docx, Pygments, latex2mathml, mathml2omml
+description: Export current conversation from Markdown to Word (.docx) with Mermaid diagrams rendered client-side (Mermaid.js, SVG+PNG), LaTeX math, real hyperlinks, improved tables, syntax highlighting, and blockquote support.
 """
+
+from __future__ import annotations
 
 import re
 import base64
@@ -16,14 +18,11 @@ import io
 import asyncio
 import logging
 import hashlib
-import ipaddress
 import struct
 import zlib
 from dataclasses import dataclass
 from typing import Optional, Callable, Awaitable, Any, List, Tuple, Dict, Literal, cast
-from urllib.parse import urlparse
-
-import httpx
+from urllib.parse import quote
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
@@ -63,10 +62,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MermaidMode = Literal["off", "kroki"]
-MermaidRendererSecurityMode = Literal["permissive", "strict"]
-MermaidKrokiImageFormat = Literal["png", "svg", "svg+png"]
-
 _AUTO_URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>()]+")
 
 _TRANSPARENT_1PX_PNG = base64.b64decode(
@@ -86,10 +81,6 @@ _ANALYSIS_RE = re.compile(
 )
 
 
-class _MermaidResponseTooLarge(Exception):
-    pass
-
-
 @dataclass(frozen=True)
 class _MermaidFenceBlock:
     info_raw: str
@@ -98,8 +89,13 @@ class _MermaidFenceBlock:
     source: str
 
 
+class _MermaidResponseTooLarge(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class _MermaidOutcome:
+    # Legacy container retained to keep older helper functions safe if invoked.
     kind: Literal["image", "code"]
     png_bytes: Optional[bytes] = None
     svg_bytes: Optional[bytes] = None
@@ -123,57 +119,29 @@ class Action:
             description="Title Source: 'chat_title' (Chat Title), 'ai_generated' (AI Generated), 'markdown_title' (Markdown Title)",
         )
 
-        MERMAID_MODE: MermaidMode = Field(
-            default="kroki",
-            description="Mermaid conversion mode: off | kroki",
+        MERMAID_JS_URL: str = Field(
+            default="https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js",
+            description="Mermaid JS CDN URL",
         )
-        MERMAID_KROKI_BASE_URL: str = Field(
-            default="https://kroki.io",
-            description="Kroki base URL. Example: https://kroki.io or http://kroki:8000",
+        MERMAID_JSZIP_URL: str = Field(
+            default="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+            description="JSZip CDN URL (DOCX manipulation)",
         )
-        MERMAID_KROKI_TIMEOUT_S: int = Field(
-            default=10, description="Kroki timeout (seconds)"
+        MERMAID_PNG_SCALE: float = Field(
+            default=3.0,
+            description="PNG render resolution multiplier (higher = clearer, larger file)",
         )
-        MERMAID_KROKI_MAX_REQUEST_BYTES: int = Field(
-            default=100_000, description="Max Mermaid bytes per Kroki request"
+        MERMAID_DISPLAY_SCALE: float = Field(
+            default=1.0,
+            description="Diagram width relative to available page width (<=1 recommended)",
         )
-        MERMAID_KROKI_MAX_RESPONSE_BYTES: int = Field(
-            default=8_000_000, description="Max PNG bytes per Kroki response"
+        MERMAID_OPTIMIZE_LAYOUT: bool = Field(
+            default=False,
+            description="Optimize Mermaid layout: convert LR to TD for graph/flowchart",
         )
-        MERMAID_KROKI_MAX_CONCURRENCY: int = Field(
-            default=2, description="Max concurrent Kroki requests per export"
-        )
-        MERMAID_KROKI_IMAGE_FORMAT: MermaidKrokiImageFormat = Field(
-            default="svg+png",
-            description="Mermaid image format: png | svg | svg+png",
-        )
-        MERMAID_KROKI_BACKGROUND: str = Field(
-            default="#FFFFFF",
-            description="Mermaid background color for Kroki renders (empty disables)",
-        )
-
-        MERMAID_KROKI_SECURITY_MODE: MermaidRendererSecurityMode = Field(
-            default="permissive",
-            description="Kroki URL security: permissive | strict",
-        )
-        MERMAID_KROKI_ALLOWED_SCHEMES: str = Field(
-            default="https",
-            description="(strict) Allowed URL schemes, comma-separated",
-        )
-        MERMAID_KROKI_HOST_ALLOWLIST: str = Field(
+        MERMAID_BACKGROUND: str = Field(
             default="",
-            description="(strict) Allowed renderer hostnames, comma-separated (empty = allow all)",
-        )
-        MERMAID_KROKI_BLOCK_PRIVATE_IPS: bool = Field(
-            default=True, description="(strict) Block private IP targets"
-        )
-        MERMAID_KROKI_BLOCK_LOOPBACK: bool = Field(
-            default=True, description="(strict) Block loopback targets"
-        )
-
-        MERMAID_MAX_TOTAL_IMAGE_BYTES_PER_EXPORT: int = Field(
-            default=15_000_000,
-            description="Max total Mermaid PNG bytes embedded per export (<=0 disables cap)",
+            description="Mermaid background color. Empty = transparent (recommended for Word dark mode). Used only for optional PNG fill.",
         )
 
         MERMAID_CAPTIONS_ENABLE: bool = Field(
@@ -197,6 +165,7 @@ class Action:
     def __init__(self):
         self.valves = self.Valves()
         self._mermaid_figure_counter: int = 0
+        self._mermaid_placeholder_counter: int = 0
         self._caption_style_name: Optional[str] = None
         self._citation_anchor_by_index: Dict[int, str] = {}
         self._citation_refs: List[_CitationRef] = []
@@ -333,28 +302,337 @@ class Action:
                             "type": "execute",
                             "data": {
                                 "code": f"""
-                                try {{
+                                (async function() {{
                                     const base64Data = "{base64_blob}";
-                                    const binaryData = atob(base64Data);
-                                    const arrayBuffer = new Uint8Array(binaryData.length);
-                                    for (let i = 0; i < binaryData.length; i++) {{
-                                        arrayBuffer[i] = binaryData.charCodeAt(i);
-                                    }}
-                                    const blob = new Blob([arrayBuffer], {{ type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }});
                                     const filename = "{filename}";
+	                                    const mermaidUrl = "{self.valves.MERMAID_JS_URL}";
+	                                    const jszipUrl = "{self.valves.MERMAID_JSZIP_URL}";
+	                                    const pngScale = {float(self.valves.MERMAID_PNG_SCALE)};
+	                                    const displayScale = {float(self.valves.MERMAID_DISPLAY_SCALE)};
+	                                    const bgRaw = "{(self.valves.MERMAID_BACKGROUND or '').strip()}";
+	                                    const bg = (bgRaw || "").trim();
+	                                    const bgFill = (bg && bg.toLowerCase() !== "transparent") ? bg : "";
+	                                    const themeBackground = bgFill || "transparent";
 
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement("a");
-                                    a.style.display = "none";
-                                    a.href = url;
-                                    a.download = filename;
-                                    document.body.appendChild(a);
-                                    a.click();
-                                    URL.revokeObjectURL(url);
-                                    document.body.removeChild(a);
-                                }} catch (error) {{
-                                    console.error('Error triggering download:', error);
-                                }}
+                                    function downloadBlob(blob, filename) {{
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement("a");
+                                        a.style.display = "none";
+                                        a.href = url;
+                                        a.download = filename;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        URL.revokeObjectURL(url);
+                                        document.body.removeChild(a);
+                                    }}
+
+                                    async function loadScript(url, globalName) {{
+                                        if (globalName && window[globalName]) return;
+                                        await new Promise((resolve, reject) => {{
+                                            const script = document.createElement("script");
+                                            script.src = url;
+                                            script.onload = resolve;
+                                            script.onerror = reject;
+                                            document.head.appendChild(script);
+                                        }});
+                                    }}
+
+                                    function decodeBase64ToUint8Array(b64) {{
+                                        const binary = atob(b64);
+                                        const bytes = new Uint8Array(binary.length);
+                                        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                                        return bytes;
+                                    }}
+
+                                    function parseViewBox(vb) {{
+                                        if (!vb) return null;
+                                        const parts = vb.trim().split(/\\s+/).map(Number);
+                                        if (parts.length !== 4 || parts.some((n) => !isFinite(n))) return null;
+                                        return {{ minX: parts[0], minY: parts[1], width: parts[2], height: parts[3] }};
+                                    }}
+
+	                                    function normalizeSvgForWord(svgText) {{
+	                                        const parser = new DOMParser();
+	                                        const doc = parser.parseFromString(svgText, "image/svg+xml");
+	                                        const svgEl = doc.documentElement;
+	                                        if (!svgEl || svgEl.tagName.toLowerCase() !== "svg") return svgText;
+
+                                        // Pad viewBox a little to reduce clipping in Word.
+                                        const vb0 = parseViewBox(svgEl.getAttribute("viewBox"));
+                                        if (vb0 && vb0.width > 0 && vb0.height > 0) {{
+                                            const minDim = Math.min(vb0.width, vb0.height);
+                                            let pad = Math.max(8.0, minDim * 0.02);
+                                            pad = Math.min(pad, 24.0);
+                                            const vb = {{
+                                                minX: vb0.minX - pad,
+                                                minY: vb0.minY - pad,
+                                                width: vb0.width + 2 * pad,
+                                                height: vb0.height + 2 * pad,
+                                            }};
+                                            svgEl.setAttribute("viewBox", `${{vb.minX}} ${{vb.minY}} ${{vb.width}} ${{vb.height}}`);
+                                        }}
+
+                                        const vb = parseViewBox(svgEl.getAttribute("viewBox"));
+                                        const widthAttr = (svgEl.getAttribute("width") || "").trim();
+                                        const heightAttr = (svgEl.getAttribute("height") || "").trim();
+                                        const widthPct = widthAttr.endsWith("%");
+                                        const heightPct = heightAttr.endsWith("%");
+                                        if (vb && vb.width > 0 && vb.height > 0 && (!widthAttr || !heightAttr || widthPct || heightPct)) {{
+                                            svgEl.setAttribute("width", `${{vb.width}}`);
+                                            svgEl.setAttribute("height", `${{vb.height}}`);
+                                        }}
+
+	                                        svgEl.removeAttribute("style");
+	                                        svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
+		                                        svgEl.setAttribute("overflow", "visible");
+
+		                                        const removeNode = (n) => {{
+		                                            try {{ n && n.parentNode && n.parentNode.removeChild(n); }} catch (_e) {{}}
+		                                        }};
+
+		                                        // Remove Mermaid/OWUI background rectangles to avoid \"white box\" rendering in Word dark mode.
+		                                        svgEl
+		                                            .querySelectorAll('rect[data-owui-bg=\"1\"], rect.background, rect[class~=\"background\"], rect#background')
+		                                            .forEach(removeNode);
+		                                        try {{
+		                                            const isWhiteish = (fill) => {{
+		                                                const f = (fill || "").trim().toLowerCase();
+	                                                return (
+	                                                    f === "white" ||
+	                                                    f === "#fff" ||
+	                                                    f === "#ffffff" ||
+	                                                    f === "rgb(255,255,255)" ||
+	                                                    f === "rgb(255, 255, 255)"
+	                                                );
+	                                            }};
+	                                            const nearly = (a, b) => Math.abs(a - b) <= 1e-3;
+	                                            const rectMatches = (r, box) => {{
+	                                                if (!box) return false;
+	                                                const x = parseFloat(r.getAttribute("x") || "0");
+	                                                const y = parseFloat(r.getAttribute("y") || "0");
+	                                                const w = parseFloat(r.getAttribute("width") || "");
+	                                                const h = parseFloat(r.getAttribute("height") || "");
+	                                                if (!isFinite(x) || !isFinite(y) || !isFinite(w) || !isFinite(h)) return false;
+	                                                return (
+	                                                    nearly(x, box.minX) &&
+	                                                    nearly(y, box.minY) &&
+	                                                    nearly(w, box.width) &&
+	                                                    nearly(h, box.height)
+	                                                );
+		                                            }};
+		                                            const vbNow = parseViewBox(svgEl.getAttribute("viewBox"));
+		                                            svgEl.querySelectorAll("rect[fill]").forEach((r) => {{
+		                                                const fill = r.getAttribute("fill");
+		                                                if (!isWhiteish(fill)) return;
+		                                                if (rectMatches(r, vb0) || rectMatches(r, vbNow)) removeNode(r);
+		                                            }});
+		                                        }} catch (_e) {{}}
+		                                        try {{
+		                                            const vbCanvas = parseViewBox(svgEl.getAttribute(\"viewBox\")) || vb0 || vb;
+		                                            if (vbCanvas) {{
+		                                                const existing = svgEl.querySelector('rect[data-owui-canvas=\"1\"]');
+		                                                const rect = existing || doc.createElementNS(\"http://www.w3.org/2000/svg\", \"rect\");
+		                                                rect.setAttribute(\"data-owui-canvas\", \"1\");
+		                                                rect.setAttribute(\"x\", `${{vbCanvas.minX}}`);
+		                                                rect.setAttribute(\"y\", `${{vbCanvas.minY}}`);
+		                                                rect.setAttribute(\"width\", `${{vbCanvas.width}}`);
+		                                                rect.setAttribute(\"height\", `${{vbCanvas.height}}`);
+		                                                rect.setAttribute(\"fill\", \"#FFFFFF\");
+		                                                // Non-zero opacity is required for Word to consistently offer \"Convert to Shape\"
+		                                                // when clicking on empty space within the graphic.
+		                                                rect.setAttribute(\"fill-opacity\", \"0.001\");
+		                                                rect.setAttribute(\"stroke\", \"none\");
+		                                                rect.setAttribute(\"stroke-opacity\", \"0\");
+		                                                rect.setAttribute(\"pointer-events\", \"none\");
+		                                                if (!existing) {{
+		                                                    const first = svgEl.firstChild;
+		                                                    svgEl.insertBefore(rect, first);
+		                                                }}
+		                                            }}
+		                                        }} catch (_e) {{}}
+
+		                                        return new XMLSerializer().serializeToString(svgEl);
+		                                    }}
+
+                                    function getMaxWidthEmu(xmlDoc) {{
+                                        try {{
+                                            const sects = xmlDoc.getElementsByTagName("w:sectPr");
+                                            const sect = sects && sects.length ? sects[sects.length - 1] : null;
+                                            if (!sect) return 5486400; // 6 in
+                                            const pgSz = sect.getElementsByTagName("w:pgSz")[0];
+                                            const pgMar = sect.getElementsByTagName("w:pgMar")[0];
+                                            if (!pgSz || !pgMar) return 5486400;
+                                            const pageW = parseInt(pgSz.getAttribute("w:w") || "", 10);
+                                            const left = parseInt(pgMar.getAttribute("w:left") || "", 10);
+                                            const right = parseInt(pgMar.getAttribute("w:right") || "", 10);
+                                            if (!isFinite(pageW) || !isFinite(left) || !isFinite(right)) return 5486400;
+                                            const twips = Math.max(1, pageW - left - right);
+                                            return Math.round(twips * 635); // 1 twip = 635 EMU
+                                        }} catch (_e) {{
+                                            return 5486400;
+                                        }}
+                                    }}
+
+                                    function getChildByTag(parent, tag) {{
+                                        const nodes = parent.getElementsByTagName(tag);
+                                        return nodes && nodes.length ? nodes[0] : null;
+                                    }}
+
+                                    try {{
+                                        await loadScript(jszipUrl, "JSZip");
+                                        await loadScript(mermaidUrl, "mermaid");
+
+                                        // Mermaid init: disable htmlLabels to keep SVG Word-friendly; PNG fallback still included.
+	                                        try {{
+	                                            window.mermaid.initialize({{
+	                                                startOnLoad: false,
+	                                                theme: "default",
+	                                                themeVariables: {{ background: themeBackground }},
+	                                                securityLevel: "strict",
+	                                                flowchart: {{ htmlLabels: false }},
+	                                            }});
+	                                        }} catch (_e) {{
+                                            // Ignore and proceed with defaults.
+                                        }}
+
+                                        const bytes = decodeBase64ToUint8Array(base64Data);
+                                        const zip = new window.JSZip();
+                                        await zip.loadAsync(bytes);
+
+                                        const docXml = await zip.file("word/document.xml").async("string");
+                                        const relsXml = await zip.file("word/_rels/document.xml.rels").async("string");
+                                        const parser = new DOMParser();
+                                        const xmlDoc = parser.parseFromString(docXml, "application/xml");
+                                        const relsDoc = parser.parseFromString(relsXml, "application/xml");
+
+                                        // Build rId -> target path mapping
+                                        const rels = relsDoc.getElementsByTagName("Relationship");
+                                        const rIdToTarget = {{}};
+                                        for (let i = 0; i < rels.length; i++) {{
+                                            const rel = rels[i];
+                                            const id = rel.getAttribute("Id");
+                                            const target = rel.getAttribute("Target");
+                                            if (id && target) rIdToTarget[id] = target;
+                                        }}
+
+                                        const maxWidthEmu = getMaxWidthEmu(xmlDoc);
+                                        const maxWidthEmuScaled = Math.max(1, Math.round(maxWidthEmu * Math.min(1.0, Math.max(0.1, displayScale || 1.0))));
+
+                                        const drawings = xmlDoc.getElementsByTagName("w:drawing");
+                                        const placeholders = [];
+
+                                        for (let i = 0; i < drawings.length; i++) {{
+                                            const drawing = drawings[i];
+                                            const docPr = getChildByTag(drawing, "wp:docPr");
+                                            if (!docPr) continue;
+                                            const descr = docPr.getAttribute("descr") || "";
+                                            if (!descr.startsWith("MERMAID_SRC:")) continue;
+                                            const encoded = descr.substring("MERMAID_SRC:".length);
+                                            const code = decodeURIComponent(encoded);
+
+                                            const blip = getChildByTag(drawing, "a:blip");
+                                            const ridPng = blip ? blip.getAttribute("r:embed") : null;
+                                            const svgBlip = getChildByTag(drawing, "asvg:svgBlip");
+                                            const ridSvg = svgBlip ? svgBlip.getAttribute("r:embed") : null;
+
+                                            const container = getChildByTag(drawing, "wp:inline") || getChildByTag(drawing, "wp:anchor");
+                                            const extent = container ? getChildByTag(container, "wp:extent") : null;
+
+                                            const xfrm = getChildByTag(drawing, "a:xfrm");
+                                            const xfrmExt = xfrm ? getChildByTag(xfrm, "a:ext") : null;
+
+                                            placeholders.push({{ code, ridPng, ridSvg, extent, xfrmExt, svgBlip }});
+                                        }}
+
+                                        if (!placeholders.length) {{
+                                            const blob = new Blob([bytes], {{ type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }});
+                                            downloadBlob(blob, filename);
+                                            return;
+                                        }}
+
+                                        for (let i = 0; i < placeholders.length; i++) {{
+                                            const item = placeholders[i];
+                                            try {{
+                                                const id = "owui-mermaid-" + i;
+                                                const rendered = await window.mermaid.render(id, item.code);
+                                                let svgText = rendered && rendered.svg ? rendered.svg : rendered;
+                                                if (!svgText || typeof svgText !== "string") throw new Error("Mermaid returned empty SVG");
+
+                                                svgText = normalizeSvgForWord(svgText);
+                                                const hasForeignObject = /<foreignObject\\b/i.test(svgText);
+                                                if (hasForeignObject && item.svgBlip) {{
+                                                    // Prefer PNG fallback when SVG contains foreignObject (often unsupported in Word SVG renderer).
+                                                    try {{ item.svgBlip.parentNode && item.svgBlip.parentNode.removeChild(item.svgBlip); }} catch (_e) {{}}
+                                                    item.ridSvg = null;
+                                                }}
+
+                                                const svgDoc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+                                                const svgEl = svgDoc.documentElement;
+                                                const vb = parseViewBox(svgEl && svgEl.getAttribute ? svgEl.getAttribute("viewBox") : null);
+                                                const ratio = vb && vb.width > 0 && vb.height > 0 ? (vb.width / vb.height) : (4/3);
+
+                                                const widthEmu = maxWidthEmuScaled;
+                                                const heightEmu = Math.max(1, Math.round(widthEmu / ratio));
+                                                if (item.extent) {{
+                                                    item.extent.setAttribute("cx", `${{widthEmu}}`);
+                                                    item.extent.setAttribute("cy", `${{heightEmu}}`);
+                                                }}
+                                                if (item.xfrmExt) {{
+                                                    item.xfrmExt.setAttribute("cx", `${{widthEmu}}`);
+                                                    item.xfrmExt.setAttribute("cy", `${{heightEmu}}`);
+                                                }}
+
+                                                // Write SVG part (if present)
+                                                if (item.ridSvg && rIdToTarget[item.ridSvg]) {{
+                                                    zip.file("word/" + rIdToTarget[item.ridSvg], svgText);
+                                                }}
+
+                                                // Render PNG fallback
+                                                if (item.ridPng && rIdToTarget[item.ridPng]) {{
+                                                    const targetWidthPx = Math.max(1, Math.round(widthEmu / 9525));
+                                                    const targetHeightPx = Math.max(1, Math.round(heightEmu / 9525));
+
+                                                    const canvas = document.createElement("canvas");
+                                                    const ctx = canvas.getContext("2d");
+	                                                    const scale = Math.max(1.0, pngScale || 1.0);
+	                                                    canvas.width = Math.round(targetWidthPx * scale);
+	                                                    canvas.height = Math.round(targetHeightPx * scale);
+	                                                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+	                                                    if (bgFill) {{
+	                                                        ctx.fillStyle = bgFill;
+	                                                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+	                                                    }}
+	                                                    ctx.scale(scale, scale);
+
+                                                    const img = new Image();
+                                                    await new Promise((resolve, reject) => {{
+                                                        img.onload = resolve;
+                                                        img.onerror = reject;
+                                                        img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgText)));
+                                                    }});
+
+                                                    ctx.drawImage(img, 0, 0, targetWidthPx, targetHeightPx);
+                                                    const pngDataUrl = canvas.toDataURL("image/png");
+                                                    const pngBase64 = pngDataUrl.split(",")[1];
+                                                    zip.file("word/" + rIdToTarget[item.ridPng], pngBase64, {{ base64: true }});
+                                                }}
+                                            }} catch (err) {{
+                                                console.error("Mermaid render failed for block", i, err);
+                                            }}
+                                        }}
+
+                                        const newDocXml = new XMLSerializer().serializeToString(xmlDoc);
+                                        zip.file("word/document.xml", newDocXml);
+
+                                        const finalBlob = await zip.generateAsync({{ type: "blob" }});
+                                        downloadBlob(finalBlob, filename);
+                                    }} catch (error) {{
+                                        console.error("Export pipeline failed:", error);
+                                        const bytes = decodeBase64ToUint8Array(base64Data);
+                                        const blob = new Blob([bytes], {{ type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }});
+                                        downloadBlob(blob, filename);
+                                    }}
+                                }})();
                                 """
                             },
                         }
@@ -507,11 +785,12 @@ class Action:
         """
         Convert Markdown text to Word document
         Supports: headings, paragraphs, bold, italic, code blocks, lists, tables, links
-        Additionally: Mermaid fenced blocks (```mermaid) rendered via Kroki (PNG/SVG),
+        Additionally: Mermaid fenced blocks (```mermaid) rendered client-side via Mermaid.js (SVG+PNG),
         LaTeX math to Word equations, and OpenWebUI citations to References.
         """
         doc = Document()
         self._mermaid_figure_counter = 0
+        self._mermaid_placeholder_counter = 0
         self._caption_style_name = None
         self._citation_anchor_by_index = {}
         self._citation_refs = self._build_citation_refs(sources or [])
@@ -525,9 +804,6 @@ class Action:
         # If there is no h1 in content, prepend chat title as h1 when provided
         if top_heading and not has_h1:
             self.add_heading(doc, top_heading, 1)
-
-        mermaid_outcomes = await self._precompute_mermaid_outcomes(markdown_text)
-        mermaid_outcome_cursor = 0
 
         lines = markdown_text.split("\n")
         i = 0
@@ -605,23 +881,7 @@ class Action:
                     in_code_block = False
                     code_text = "\n".join(code_block_content)
                     if code_block_lang.lower() == "mermaid":
-                        outcome = (
-                            mermaid_outcomes[mermaid_outcome_cursor]
-                            if mermaid_outcome_cursor < len(mermaid_outcomes)
-                            else _MermaidOutcome(
-                                kind="code",
-                                error_classification="mermaid_preprocessing_mismatch",
-                                error_detail="Mermaid preprocessing mismatch",
-                            )
-                        )
-                        mermaid_outcome_cursor += 1
-                        self._insert_mermaid_outcome(
-                            doc,
-                            code_text,
-                            outcome,
-                            info_raw=code_block_info_raw,
-                            attrs=code_block_attrs,
-                        )
+                        self._insert_mermaid_placeholder(doc, code_text)
                     else:
                         self.add_code_block(doc, code_text, code_block_lang)
                     code_block_content = []
@@ -987,17 +1247,109 @@ class Action:
         text = (source or "").replace("\r\n", "\n").replace("\r", "\n").strip()
         return text + "\n"
 
-    def _prepare_mermaid_for_kroki(self, source: str) -> str:
+    def _prepare_mermaid_for_js(self, source: str) -> str:
+        """
+        Prepare Mermaid source for client-side rendering:
+        - strip title directives (caption already carries it),
+        """
         text = self._strip_mermaid_title_for_render(source)
-        bg = (self.valves.MERMAID_KROKI_BACKGROUND or "").strip()
-        if bg == "":
-            return text
-        escaped = bg.replace("\\", "\\\\").replace('"', '\\"')
-        init_line = f'%%{{init: {{"themeVariables": {{"background": "{escaped}"}}}}}}%%'
-        # Avoid duplicating if already present (idempotent).
-        if init_line in text:
-            return text
-        return init_line + "\n" + text
+        return text
+
+    def _png_with_text_chunk(self, png_bytes: bytes, keyword: str, value: str) -> bytes:
+        """
+        Ensure placeholder PNGs stay distinct in the DOCX package:
+        python-docx may deduplicate identical image bytes into one media part.
+        We insert a small tEXt chunk so each placeholder is unique, without changing
+        dimensions or requiring external imaging libraries.
+        """
+        if not png_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            return png_bytes
+
+        keyword_b = (keyword or "owui").encode("latin-1", errors="ignore")[:79]
+        keyword_b = keyword_b.replace(b"\x00", b"") or b"owui"
+        value_b = (value or "").encode("latin-1", errors="ignore")
+        data = keyword_b + b"\x00" + value_b
+        chunk_type = b"tEXt"
+        crc = zlib.crc32(chunk_type + data) & 0xFFFFFFFF
+        chunk = struct.pack("!I", len(data)) + chunk_type + data + struct.pack("!I", crc)
+
+        out = bytearray()
+        out.extend(png_bytes[:8])
+        offset = 8
+        inserted = False
+        while offset + 8 <= len(png_bytes):
+            length = struct.unpack("!I", png_bytes[offset : offset + 4])[0]
+            ctype = png_bytes[offset + 4 : offset + 8]
+            chunk_total = 12 + length
+            if offset + chunk_total > len(png_bytes):
+                break
+            if ctype == b"IEND" and not inserted:
+                out.extend(chunk)
+                inserted = True
+            out.extend(png_bytes[offset : offset + chunk_total])
+            offset += chunk_total
+            if ctype == b"IEND":
+                break
+        if not inserted:
+            return png_bytes
+        return bytes(out)
+
+    def _make_mermaid_placeholder_png(self, seed: str) -> bytes:
+        return self._png_with_text_chunk(_TRANSPARENT_1PX_PNG, "owui", seed)
+
+    def _dummy_mermaid_svg_bytes(self) -> bytes:
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1"></svg>'
+        ).encode("utf-8")
+
+    def _insert_mermaid_placeholder(self, doc: Document, mermaid_source: str):
+        caption_title: Optional[str] = (
+            self._extract_mermaid_title(mermaid_source)
+            if self.valves.MERMAID_CAPTIONS_ENABLE
+            else None
+        )
+
+        source_for_render = mermaid_source
+        if self.valves.MERMAID_OPTIMIZE_LAYOUT:
+            source_for_render = re.sub(
+                r"^(graph|flowchart)\s+LR\b",
+                r"\1 TD",
+                source_for_render,
+                flags=re.MULTILINE | re.IGNORECASE,
+            )
+        source_for_render = self._prepare_mermaid_for_js(source_for_render)
+
+        self._mermaid_placeholder_counter += 1
+        seed = hashlib.sha256(
+            f"{self._mermaid_placeholder_counter}\n{source_for_render}".encode(
+                "utf-8", errors="replace"
+            )
+        ).hexdigest()[:16]
+        png_bytes = self._make_mermaid_placeholder_png(seed)
+
+        shape = doc.add_picture(cast(Any, io.BytesIO(png_bytes)))
+        try:
+            doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        except Exception:
+            pass
+
+        # Attach a dummy SVG part so we can later overwrite it client-side (SVG+PNG).
+        self._attach_svg_blip(doc, shape, self._dummy_mermaid_svg_bytes())
+
+        try:
+            encoded = quote(source_for_render)
+            inline = shape._inline
+            docPr = inline.docPr
+            docPr.set("descr", f"MERMAID_SRC:{encoded}")
+            docPr.set("title", "Mermaid Diagram Placeholder")
+        except Exception as exc:
+            logger.warning(f"Failed to annotate Mermaid placeholder: {exc}")
+
+        self._add_mermaid_caption(doc, caption_title)
+
+    def _prepare_mermaid_for_kroki(self, source: str) -> str:
+        # Backwards-compat alias (Kroki renderer removed).
+        return self._prepare_mermaid_for_js(source)
 
     def _mermaid_cache_key(self, source: str) -> str:
         normalized = self._normalize_mermaid_text(source)
