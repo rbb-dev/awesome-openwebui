@@ -624,7 +624,11 @@ class Action:
                                         const newDocXml = new XMLSerializer().serializeToString(xmlDoc);
                                         zip.file("word/document.xml", newDocXml);
 
-                                        const finalBlob = await zip.generateAsync({{ type: "blob" }});
+                                        const finalBlob = await zip.generateAsync({{
+                                            type: "blob",
+                                            compression: "DEFLATE",
+                                            compressionOptions: {{ level: 6 }},
+                                        }});
                                         downloadBlob(finalBlob, filename);
                                     }} catch (error) {{
                                         console.error("Export pipeline failed:", error);
