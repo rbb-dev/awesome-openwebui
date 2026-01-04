@@ -485,13 +485,19 @@ class Action:
 
                                         // Mermaid init: disable htmlLabels to keep SVG Word-friendly; PNG fallback still included.
 	                                        try {{
-	                                            window.mermaid.initialize({{
-	                                                startOnLoad: false,
-	                                                theme: "default",
-	                                                themeVariables: {{ background: themeBackground }},
-	                                                securityLevel: "strict",
-	                                                flowchart: {{ htmlLabels: false }},
-	                                            }});
+		                                            window.mermaid.initialize({{
+		                                                startOnLoad: false,
+		                                                theme: "default",
+			                                                themeVariables: {{
+			                                                    background: themeBackground,
+			                                                    fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
+			                                                    fontSize: "10pt",
+			                                                }},
+			                                                themeCSS: ".slice {{ font-size: 10pt !important; }}\\n.legend text {{ font-size: 10pt !important; }}\\n.pieTitleText {{ font-size: 10pt !important; }}",
+			                                                fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
+			                                                securityLevel: "strict",
+			                                                flowchart: {{ htmlLabels: false }},
+			                                            }});
 	                                        }} catch (_e) {{
                                             // Ignore and proceed with defaults.
                                         }}
