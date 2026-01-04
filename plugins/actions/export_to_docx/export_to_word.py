@@ -263,8 +263,9 @@ class Action:
                 current_datetime = datetime.datetime.now()
                 formatted_date = current_datetime.strftime("%Y%m%d")
 
-                if title:
-                    filename = f"{self.clean_filename(title)}.docx"
+                cleaned_title = self.clean_filename(title) if title else ""
+                if cleaned_title:
+                    filename = f"{cleaned_title}.docx"
                 else:
                     filename = f"{user_name}_{formatted_date}.docx"
 
@@ -776,8 +777,37 @@ class Action:
         return title.strip() if isinstance(title, str) else ""
 
     def clean_filename(self, name: str) -> str:
-        """Clean illegal characters from filename"""
-        return re.sub(r'[\\/*?:"<>|]', "", name).strip()[:50]
+        """Clean illegal characters from filename and strip emoji."""
+        if not isinstance(name, str):
+            return ""
+
+        def _is_emoji_codepoint(codepoint: int) -> bool:
+            # Common emoji ranges + flag regional indicators.
+            return (
+                0x1F000 <= codepoint <= 0x1FAFF
+                or 0x1F1E6 <= codepoint <= 0x1F1FF
+                or 0x2600 <= codepoint <= 0x26FF
+                or 0x2700 <= codepoint <= 0x27BF
+                or 0x2300 <= codepoint <= 0x23FF
+                or 0x2B00 <= codepoint <= 0x2BFF
+            )
+
+        def _is_emoji_modifier(codepoint: int) -> bool:
+            # VS15/VS16, ZWJ, keycap, skin tones, and tag characters used in some emoji sequences.
+            return (
+                codepoint in (0x200D, 0xFE0E, 0xFE0F, 0x20E3)
+                or 0x1F3FB <= codepoint <= 0x1F3FF
+                or 0xE0020 <= codepoint <= 0xE007F
+            )
+
+        without_emoji = "".join(
+            ch
+            for ch in name
+            if not (_is_emoji_codepoint(ord(ch)) or _is_emoji_modifier(ord(ch)))
+        )
+        cleaned = re.sub(r'[\\/*?:"<>|]', "", without_emoji)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip().strip(".")
+        return cleaned[:50].strip()
 
     async def markdown_to_docx(
         self,
